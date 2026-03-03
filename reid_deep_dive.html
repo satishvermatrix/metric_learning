@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Person &amp; Vehicle Re-Identification — Deep Dive</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0f1117; --surface:#181c24; --card:#1e2330; --border:#2a3045;
+      --accent:#4f8ef7; --accent2:#9f7aea; --accent3:#38b2ac; --accent4:#f6ad55;
+      --green:#48bb78; --red:#fc8181; --text:#e2e8f0; --muted:#8892a4;
+      --code-bg:#141820; --radius:10px;
+      --font:'Segoe UI',system-ui,-apple-system,sans-serif;
+      --mono:'Fira Code','Cascadia Code','Consolas',monospace;
+    }
+    html { scroll-behavior:smooth; }
+    body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:16px; line-height:1.75; }
+    .page-wrap { display:flex; }
+    nav.sidebar {
+      position:fixed; top:0; left:0; bottom:0; width:248px;
+      background:var(--surface); border-right:1px solid var(--border);
+      padding:24px 14px; overflow-y:auto; z-index:100;
+    }
+    nav.sidebar .logo { font-size:1rem; font-weight:700; color:var(--accent); letter-spacing:.04em; margin-bottom:22px; display:block; }
+    nav.sidebar ul { list-style:none; }
+    nav.sidebar ul li { margin-bottom:3px; }
+    nav.sidebar ul li a { display:block; padding:5px 9px; border-radius:6px; color:var(--muted); text-decoration:none; font-size:.82rem; transition:all .18s; }
+    nav.sidebar ul li a:hover, nav.sidebar ul li a.active { color:var(--text); background:var(--card); }
+    nav.sidebar ul li a .num { display:inline-block; width:20px; color:var(--accent); font-weight:700; font-size:.78rem; }
+    nav.sidebar .group-label { font-size:.68rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin:14px 9px 4px; }
+    main.content { margin-left:248px; flex:1; max-width:980px; padding:44px 50px 80px; }
+    header.hero { background:linear-gradient(135deg,#1a2540 0%,#0f1117 60%,#12182a 100%); border-bottom:1px solid var(--border); padding:58px 50px 46px; margin-left:248px; }
+    header.hero .tag { display:inline-block; background:rgba(79,142,247,.15); border:1px solid rgba(79,142,247,.35); color:var(--accent); border-radius:20px; padding:3px 14px; font-size:.78rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; margin-bottom:16px; }
+    header.hero h1 { font-size:2.35rem; font-weight:800; line-height:1.2; color:#fff; margin-bottom:12px; }
+    header.hero h1 span { color:var(--accent); }
+    header.hero p { font-size:1.02rem; color:var(--muted); max-width:700px; }
+    section { margin-bottom:62px; }
+    section h2 { font-size:1.52rem; font-weight:700; color:#fff; margin-bottom:18px; padding-bottom:10px; border-bottom:2px solid var(--border); display:flex; align-items:center; gap:12px; }
+    section h2 .sec-num { background:var(--accent); color:#fff; font-size:.73rem; font-weight:800; width:26px; height:26px; border-radius:6px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    section h3 { font-size:1.13rem; font-weight:600; color:var(--accent); margin:26px 0 10px; }
+    section h4 { font-size:.98rem; font-weight:600; color:var(--accent4); margin:18px 0 7px; }
+    p { margin-bottom:13px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:20px 24px; margin:18px 0; }
+    .callout { border-left:4px solid var(--accent); background:rgba(79,142,247,.07); border-radius:0 var(--radius) var(--radius) 0; padding:13px 18px; margin:16px 0; font-size:.94rem; }
+    .callout.warn { border-left-color:var(--accent4); background:rgba(246,173,85,.07); }
+    .callout.tip  { border-left-color:var(--green);   background:rgba(72,187,120,.07); }
+    .callout.purple { border-left-color:var(--accent2); background:rgba(159,122,234,.07); }
+    pre { background:var(--code-bg); border:1px solid var(--border); border-radius:var(--radius); padding:18px 22px; overflow-x:auto; font-family:var(--mono); font-size:.81rem; line-height:1.65; margin:16px 0; }
+    code.inline { background:var(--code-bg); border:1px solid var(--border); border-radius:4px; padding:1px 6px; font-family:var(--mono); font-size:.82em; color:#a5d8ff; }
+    .kw{color:#c792ea} .fn{color:#82aaff} .str{color:#c3e88d} .cm{color:#546e7a;font-style:italic} .num{color:#f78c6c} .cls{color:#ffcb6b}
+    .tbl-wrap { overflow-x:auto; margin:18px 0; }
+    table { width:100%; border-collapse:collapse; font-size:.87rem; }
+    thead tr { background:var(--card); }
+    thead th { padding:10px 13px; text-align:left; font-weight:700; color:var(--accent); border-bottom:2px solid var(--border); white-space:nowrap; }
+    tbody tr { border-bottom:1px solid var(--border); }
+    tbody tr:hover { background:rgba(255,255,255,.025); }
+    tbody td { padding:9px 13px; vertical-align:top; }
+    .badge { display:inline-block; border-radius:4px; padding:2px 8px; font-size:.7rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+    .badge.green  { background:rgba(72,187,120,.2);  color:var(--green); }
+    .badge.yellow { background:rgba(246,173,85,.2);  color:var(--accent4); }
+    .badge.red    { background:rgba(252,129,129,.2); color:var(--red); }
+    .badge.blue   { background:rgba(79,142,247,.2);  color:var(--accent); }
+    .badge.purple { background:rgba(159,122,234,.2); color:var(--accent2); }
+    .badge.teal   { background:rgba(56,178,172,.2);  color:var(--accent3); }
+    .diagram-wrap { background:var(--code-bg); border:1px solid var(--border); border-radius:var(--radius); padding:26px 18px; margin:22px 0; overflow-x:auto; text-align:center; }
+    .diagram-wrap figcaption { font-size:.78rem; color:var(--muted); margin-top:12px; font-style:italic; }
+    .math { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:15px 20px; font-family:var(--mono); font-size:.88rem; color:#e2e8f0; margin:15px 0; letter-spacing:.02em; }
+    .math .label { font-size:.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:5px; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:18px 0; }
+    .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin:18px 0; }
+    @media(max-width:760px){.grid2,.grid3{grid-template-columns:1fr}}
+    .arch-card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; }
+    .arch-card h4 { margin:0 0 7px; font-size:.88rem; }
+    .arch-card p  { font-size:.83rem; color:var(--muted); margin:0; }
+    .arch-card .rec { margin-top:9px; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+    details { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); margin:12px 0; }
+    summary { padding:13px 17px; cursor:pointer; font-weight:600; font-size:.93rem; color:var(--accent); list-style:none; display:flex; align-items:center; gap:10px; }
+    summary::-webkit-details-marker { display:none; }
+    summary::before { content:'▶'; font-size:.63rem; transition:transform .2s; color:var(--muted); }
+    details[open] summary::before { transform:rotate(90deg); }
+    details .detail-body { padding:0 17px 17px; }
+    ul.list, ol.list { padding-left:20px; margin:9px 0 14px; }
+    ul.list li, ol.list li { margin-bottom:5px; color:var(--text); font-size:.93rem; }
+    hr { border:none; border-top:1px solid var(--border); margin:38px 0; }
+    .highlight { color:var(--accent); font-weight:600; }
+    .footnote { font-size:.8rem; color:var(--muted); font-style:italic; }
+    a { color:var(--accent); text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .stat-row { display:flex; gap:24px; flex-wrap:wrap; margin:14px 0; }
+    .stat-box { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px 20px; flex:1; min-width:120px; }
+    .stat-box .val { font-size:1.7rem; font-weight:800; }
+    .stat-box .lbl { font-size:.75rem; color:var(--muted); margin-top:2px; }
+    .compare-pill { display:inline-flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--border); border-radius:20px; padding:4px 12px; font-size:.8rem; margin:3px; }
+  </style>
+</head>
+<body>
+<nav class="sidebar">
+  <span class="logo">ReID · Deep Dive</span>
+  <div class="group-label">Foundations</div>
+  <ul>
+    <li><a href="#intro"><span class="num">1.</span> The ReID Problem</a></li>
+    <li><a href="#datasets"><span class="num">2.</span> Datasets</a></li>
+    <li><a href="#challenges"><span class="num">3.</span> Challenges</a></li>
+  </ul>
+  <div class="group-label">Architecture</div>
+  <ul>
+    <li><a href="#backbones"><span class="num">4.</span> Backbone Architectures</a></li>
+    <li><a href="#embeddings"><span class="num">5.</span> Embedding Generation</a></li>
+    <li><a href="#dualhead"><span class="num">6.</span> Dual-Head Architecture</a></li>
+  </ul>
+  <div class="group-label">Training</div>
+  <ul>
+    <li><a href="#metric"><span class="num">7.</span> Metric Learning</a></li>
+    <li><a href="#partbased"><span class="num">8.</span> Part-Based Models</a></li>
+    <li><a href="#training"><span class="num">9.</span> Training Strategy</a></li>
+  </ul>
+  <div class="group-label">Results</div>
+  <ul>
+    <li><a href="#evaluation"><span class="num">10.</span> Evaluation</a></li>
+    <li><a href="#sota"><span class="num">11.</span> SOTA Summary</a></li>
+    <li><a href="#references"><span class="num">12.</span> References</a></li>
+  </ul>
+</nav>
+<header class="hero">
+  <div class="tag">Technical Deep Dive</div>
+  <h1>Person &amp; Vehicle<br/><span>Re-Identification (ReID)</span></h1>
+  <p>A comprehensive study covering the ReID problem formulation, benchmark datasets, backbone architectures,
+     embedding generation, metric learning objectives, dual-head training, part-based models,
+     and the full evaluation framework for both person and vehicle ReID.</p>
+</header>
+<main class="content">
+
+<!-- §1 INTRODUCTION -->
+<section id="intro">
+  <h2><span class="sec-num">1</span> The ReID Problem</h2>
+  <h3>What is Re-Identification?</h3>
+  <p>
+    Re-Identification (ReID) is the task of <strong>matching a query image of a person or vehicle
+    against a gallery of images</strong> captured by different cameras, at different times,
+    and under different conditions — without relying on persistent identifiers like license
+    plates or face images.
+  </p>
+  <p>
+    This is fundamentally different from classification: in ReID the model must generalize to
+    <strong>identities never seen during training</strong>. The correct framing is
+    <em>metric learning</em> — learning a distance function such that images of the same identity
+    are closer than images of different identities in the embedding space.
+  </p>
+  <div class="callout">
+    <strong>Key distinction vs. VMMR/classification:</strong> Classification is closed-set (196 fixed classes).
+    ReID is open-set: at test time, the model sees query identities it has never trained on.
+    The model must produce a ranking of the gallery, not a class label.
+  </div>
+  <h3>Query-Gallery Paradigm</h3>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 860 200" width="820" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',system-ui,sans-serif">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#4f8ef7"/></marker>
+        <marker id="arrg" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#48bb78"/></marker>
+        <marker id="arrr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#fc8181"/></marker>
+      </defs>
+      <!-- Camera A -->
+      <rect x="10" y="30" width="120" height="140" rx="8" fill="#1e2330" stroke="#4f8ef7" stroke-width="1.5"/>
+      <text x="70" y="52" text-anchor="middle" fill="#4f8ef7" font-size="11" font-weight="700">Camera A</text>
+      <rect x="25" y="62" width="90" height="90" rx="5" fill="#141820" stroke="#2a3045"/>
+      <text x="70" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Query</text>
+      <text x="70" y="118" text-anchor="middle" fill="#8892a4" font-size="9">Person / Vehicle</text>
+      <text x="70" y="133" text-anchor="middle" fill="#8892a4" font-size="9">ID unknown</text>
+      <text x="70" y="158" text-anchor="middle" fill="#8892a4" font-size="9">1 image</text>
+      <!-- Arrow -->
+      <line x1="130" y1="100" x2="170" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#arr)"/>
+      <!-- Model box -->
+      <rect x="172" y="60" width="130" height="80" rx="8" fill="#1a2540" stroke="#9f7aea" stroke-width="2"/>
+      <text x="237" y="88" text-anchor="middle" fill="#9f7aea" font-size="11" font-weight="700">ReID Model</text>
+      <text x="237" y="106" text-anchor="middle" fill="#8892a4" font-size="9">Extract embedding</text>
+      <text x="237" y="120" text-anchor="middle" fill="#8892a4" font-size="9">Compute distances</text>
+      <text x="237" y="134" text-anchor="middle" fill="#8892a4" font-size="9">Rank gallery</text>
+      <!-- Arrow -->
+      <line x1="302" y1="100" x2="342" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#arr)"/>
+      <!-- Gallery box -->
+      <rect x="344" y="20" width="160" height="160" rx="8" fill="#1e2330" stroke="#38b2ac" stroke-width="1.5"/>
+      <text x="424" y="42" text-anchor="middle" fill="#38b2ac" font-size="11" font-weight="700">Gallery (Camera B,C...)</text>
+      <rect x="358" y="52" width="60" height="50" rx="4" fill="#141820" stroke="#48bb78" stroke-width="1.5"/>
+      <text x="388" y="74" text-anchor="middle" fill="#48bb78" font-size="9">Match ✓</text>
+      <text x="388" y="88" text-anchor="middle" fill="#8892a4" font-size="8">same ID</text>
+      <text x="388" y="100" text-anchor="middle" fill="#8892a4" font-size="8">Rank 1</text>
+      <rect x="430" y="52" width="60" height="50" rx="4" fill="#141820" stroke="#2a3045"/>
+      <text x="460" y="74" text-anchor="middle" fill="#fc8181" font-size="9">No match</text>
+      <text x="460" y="88" text-anchor="middle" fill="#8892a4" font-size="8">diff ID</text>
+      <rect x="358" y="115" width="60" height="50" rx="4" fill="#141820" stroke="#2a3045"/>
+      <text x="388" y="137" text-anchor="middle" fill="#fc8181" font-size="9">No match</text>
+      <text x="388" y="151" text-anchor="middle" fill="#8892a4" font-size="8">diff ID</text>
+      <rect x="430" y="115" width="60" height="50" rx="4" fill="#141820" stroke="#2a3045"/>
+      <text x="460" y="137" text-anchor="middle" fill="#fc8181" font-size="9">No match</text>
+      <text x="460" y="151" text-anchor="middle" fill="#8892a4" font-size="8">diff ID</text>
+      <!-- Ranked results -->
+      <line x1="504" y1="100" x2="544" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#arr)"/>
+      <rect x="546" y="30" width="290" height="140" rx="8" fill="#1e2330" stroke="#f6ad55" stroke-width="1.5"/>
+      <text x="691" y="52" text-anchor="middle" fill="#f6ad55" font-size="11" font-weight="700">Ranked Results</text>
+      <text x="580" y="75" text-anchor="middle" fill="#8892a4" font-size="9">Rank 1</text>
+      <text x="630" y="75" text-anchor="middle" fill="#8892a4" font-size="9">Rank 2</text>
+      <text x="680" y="75" text-anchor="middle" fill="#8892a4" font-size="9">Rank 3</text>
+      <text x="730" y="75" text-anchor="middle" fill="#8892a4" font-size="9">Rank 4</text>
+      <text x="800" y="75" text-anchor="middle" fill="#8892a4" font-size="9">...</text>
+      <rect x="556" y="82" width="45" height="60" rx="4" fill="#141820" stroke="#48bb78" stroke-width="2"/>
+      <text x="578" y="118" text-anchor="middle" fill="#48bb78" font-size="20">✓</text>
+      <rect x="606" y="82" width="45" height="60" rx="4" fill="#141820" stroke="#2a3045"/>
+      <text x="628" y="118" text-anchor="middle" fill="#fc8181" font-size="20">✗</text>
+      <rect x="656" y="82" width="45" height="60" rx="4" fill="#141820" stroke="#2a3045"/>
+      <text x="678" y="118" text-anchor="middle" fill="#fc8181" font-size="20">✗</text>
+      <rect x="706" y="82" width="45" height="60" rx="4" fill="#141820" stroke="#2a3045"/>
+      <text x="728" y="118" text-anchor="middle" fill="#fc8181" font-size="20">✗</text>
+      <text x="775" y="118" text-anchor="middle" fill="#8892a4" font-size="18">…</text>
+      <text x="691" y="162" text-anchor="middle" fill="#48bb78" font-size="9">Rank-1 correct → contributes to mAP &amp; CMC</text>
+    </svg>
+    <figcaption>Figure 1.1 — ReID query-gallery paradigm: rank a gallery by embedding distance to the query</figcaption>
+  </div>
+  <h3>Person ReID vs. Vehicle ReID</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4 style="color:var(--accent)">Person ReID</h4>
+      <ul class="list" style="margin:8px 0 0">
+        <li>Discriminative cues: clothing color, texture, accessories, gait, body shape</li>
+        <li>High viewpoint variability (front/back/side look very different)</li>
+        <li>Occlusion is frequent (crowds, objects)</li>
+        <li>Clothing changes possible across days (long-term ReID)</li>
+        <li>Part alignment critical: head, torso, legs carry different information</li>
+        <li>Typical image size: 64×128 or 128×256 pixels</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 style="color:var(--accent2)">Vehicle ReID</h4>
+      <ul class="list" style="margin:8px 0 0">
+        <li>Discriminative cues: color, shape, minor part differences (headlights, wheels, stickers)</li>
+        <li>Hard negatives: same make/model/color but different instance (identical twins problem)</li>
+        <li>Viewpoint matters enormously: front vs. rear vs. side are near-orthogonal appearances</li>
+        <li>Spatial-temporal context (trajectory, camera topology) is highly informative</li>
+        <li>License plate is a strong cue but may be occluded, blurry, or deliberately absent</li>
+        <li>Typical image size: 128×128 or 224×224 pixels</li>
+      </ul>
+    </div>
+  </div>
+  <h3>Open-Set vs. Closed-Set</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Setting</th><th>Training IDs</th><th>Test IDs</th><th>Evaluation</th><th>Use case</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Closed-set</strong></td><td>N IDs</td><td>Same N IDs</td><td>Classification accuracy</td><td>Access control (known people)</td></tr>
+      <tr><td><strong>Open-set (standard ReID)</strong></td><td>N IDs</td><td>New M IDs</td><td>CMC / mAP ranking</td><td>Surveillance (unknown people)</td></tr>
+      <tr><td><strong>Open-world</strong></td><td>N IDs</td><td>M IDs + distractors</td><td>mAP with large gallery</td><td>City-scale tracking</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- §2 DATASETS -->
+<section id="datasets">
+  <h2><span class="sec-num">2</span> Benchmark Datasets</h2>
+  <h3>Person ReID Datasets</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Dataset</th><th>Identities</th><th>Images</th><th>Cameras</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Market-1501</strong></td><td>1,501</td><td>32,668</td><td>6</td><td>De-facto standard benchmark; DPM detector bboxes; outdoor university campus</td></tr>
+      <tr><td><strong>DukeMTMC-ReID</strong></td><td>1,404</td><td>36,411</td><td>8</td><td>High resolution; hand-drawn bboxes; indoor+outdoor; now partially retired</td></tr>
+      <tr><td><strong>MSMT17</strong></td><td>4,101</td><td>126,441</td><td>15</td><td>Largest person ReID; indoor+outdoor; most challenging; recommended for 2024+</td></tr>
+      <tr><td><strong>CUHK03</strong></td><td>1,467</td><td>14,097</td><td>2</td><td>Indoor lab; two versions: detected (harder) and labeled (cleaner)</td></tr>
+      <tr><td><strong>PRCC</strong></td><td>221</td><td>33,698</td><td>3</td><td>Clothing-change ReID; same person with different outfits across cameras</td></tr>
+      <tr><td><strong>LaST</strong></td><td>10,862</td><td>228,156</td><td>Many</td><td>Long-term ReID; multiple day/clothing changes; city-scale</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout tip">
+    <strong>Recommended for new work:</strong> Train on <strong>MSMT17</strong> (or Market-1501 for quick iteration),
+    evaluate on both Market-1501 and MSMT17 to show generalization. DukeMTMC-ReID has been withdrawn from public
+    distribution due to data ethics concerns.
+  </div>
+  <h3>Vehicle ReID Datasets</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Dataset</th><th>Identities</th><th>Images</th><th>Cameras</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>VeRi-776</strong></td><td>776</td><td>49,357</td><td>20</td><td>Standard vehicle ReID benchmark; includes attributes (color, type); multiple viewpoints</td></tr>
+      <tr><td><strong>VehicleID</strong></td><td>26,267</td><td>221,763</td><td>2</td><td>Large-scale; frontal + rear views; organized as small/medium/large test splits</td></tr>
+      <tr><td><strong>VERI-Wild</strong></td><td>40,671</td><td>416,314</td><td>174</td><td>Massive real-world scale; 3 test scales; temporal metadata available</td></tr>
+      <tr><td><strong>CityFlow-ReID</strong></td><td>666</td><td>56,277</td><td>40</td><td>From AI City Challenge; cross-camera vehicle tracking and retrieval</td></tr>
+      <tr><td><strong>PKU-VD</strong></td><td>141,756</td><td>1.09M</td><td>2</td><td>Very large-scale; viewpoint diversity; split into VD1 and VD2</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Dataset Statistics at a Glance</h3>
+  <div class="stat-row">
+    <div class="stat-box"><div class="val" style="color:var(--accent)">4,101</div><div class="lbl">MSMT17 identities (person)</div></div>
+    <div class="stat-box"><div class="val" style="color:var(--accent2)">776</div><div class="lbl">VeRi-776 vehicles</div></div>
+    <div class="stat-box"><div class="val" style="color:var(--accent3)">40,671</div><div class="lbl">VERI-Wild vehicles</div></div>
+    <div class="stat-box"><div class="val" style="color:var(--accent4)">126K+</div><div class="lbl">MSMT17 images</div></div>
+  </div>
+  <h3>Data Format and Loading</h3>
+  <p>Most ReID datasets follow a common directory structure:</p>
+<pre><span class="cm"># Standard ReID dataset layout</span>
+dataset/
+├── bounding_box_train/    <span class="cm"># training images: {ID}_{cam}_{seq}_{frame}.jpg</span>
+├── bounding_box_test/     <span class="cm"># gallery images</span>
+├── query/                 <span class="cm"># query images (subset of test identities)</span>
+└── <span class="fn">readme</span>.txt
+
+<span class="cm"># Filename convention (Market-1501): 0001_c1s1_000151_01.jpg</span>
+<span class="cm">#   0001 = identity ID</span>
+<span class="cm">#   c1   = camera index (1-6)</span>
+<span class="cm">#   s1   = sequence</span>
+<span class="cm">#   0001 = frame number</span></pre>
+</section>
+
+<!-- §3 CHALLENGES -->
+<section id="challenges">
+  <h2><span class="sec-num">3</span> Core Challenges</h2>
+  <div class="grid2">
+    <div class="card">
+      <h4>Viewpoint &amp; Pose Variation</h4>
+      <p>The same person/vehicle looks radically different from front, side, and rear.
+         A vehicle's front and rear views share almost no visual features yet must be matched.
+         Part-based models and attention mechanisms address this.</p>
+    </div>
+    <div class="card">
+      <h4>Illumination &amp; Weather</h4>
+      <p>Outdoor cameras span dawn to night, sunny to overcast. Color histograms shift drastically.
+         Models must learn illumination-invariant features or rely on texture/shape over color.</p>
+    </div>
+    <div class="card">
+      <h4>Resolution &amp; Quality</h4>
+      <p>Surveillance images are often low-resolution (64×128 for person ReID).
+         Super-resolution preprocessing or multi-scale feature extraction helps,
+         but fundamentally limits what discriminative detail is available.</p>
+    </div>
+    <div class="card">
+      <h4>Occlusion</h4>
+      <p>Partial visibility is common — a person half-hidden behind a pillar,
+         a vehicle with its rear occluded. Occluded ReID is a distinct research area
+         requiring part visibility estimation and spatial attention.</p>
+    </div>
+    <div class="card">
+      <h4>The Identical Twin Problem (Vehicle)</h4>
+      <p>Two vehicles of the same make, model, color, and year are visually near-identical.
+         Distinguishing them requires subtle cues: minor dents, stickers, custom accessories.
+         Spatial-temporal cues (camera network topology) provide critical disambiguation.</p>
+    </div>
+    <div class="card">
+      <h4>Domain Gap</h4>
+      <p>Models trained on Market-1501 (outdoor university) often degrade on MSMT17 (multi-environment).
+         Unsupervised domain adaptation (UDA) and domain-generalized ReID are active research directions.</p>
+    </div>
+  </div>
+  <div class="callout warn">
+    <strong>Long-term ReID (person):</strong> When the same person is observed days or weeks apart,
+    they may have changed clothing entirely. Clothing-agnostic features — body shape, gait, face,
+    tattoos — become the only reliable cues. This is an emerging and unsolved challenge.
+  </div>
+</section>
+
+<!-- §4 BACKBONES -->
+<section id="backbones">
+  <h2><span class="sec-num">4</span> Backbone Architectures</h2>
+  <p>ReID backbones are almost always pretrained on ImageNet and fine-tuned on the ReID dataset.
+     The backbone's role is to produce discriminative spatial feature maps that the pooling
+     and projection heads can convert into embeddings.</p>
+  <h3>CNN Backbones</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Backbone</th><th>Params</th><th>Feat. dim</th><th>Stride</th><th>ReID suitability</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>ResNet-50</strong></td><td>25M</td><td>2048</td><td>32</td><td><span class="badge yellow">Strong baseline</span></td><td>Standard in most ReID papers (BOT, AGW). Well-benchmarked.</td></tr>
+      <tr><td><strong>ResNet-50 (stride=1)</strong></td><td>25M</td><td>2048</td><td>16</td><td><span class="badge green">Better for ReID</span></td><td>Last stage stride changed from 2→1; produces 16× denser feature map — key for part-based models</td></tr>
+      <tr><td><strong>OSNet</strong></td><td>2.2M</td><td>512</td><td>16</td><td><span class="badge green">ReID-specific</span></td><td>Omni-scale network; designed specifically for ReID; multi-scale aggregation; tiny yet powerful</td></tr>
+      <tr><td><strong>EfficientNet-B0</strong></td><td>5.3M</td><td>1280</td><td>32</td><td><span class="badge yellow">Good</span></td><td>Good accuracy/size; less studied in ReID than ResNet</td></tr>
+      <tr><td><strong>IBN-Net (ResNet-50-IBN)</strong></td><td>25M</td><td>2048</td><td>16</td><td><span class="badge green">Domain robust</span></td><td>Instance-Batch Norm for appearance invariance; excellent for cross-domain ReID</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Transformer Backbones</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Backbone</th><th>Params</th><th>Feat. dim</th><th>Key property</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>ViT-B/16</strong></td><td>86M</td><td>768</td><td>Global attention</td><td>TransReID uses this; patch tokens enable part-based features without explicit detection</td></tr>
+      <tr><td><strong>ViT-S/16</strong></td><td>22M</td><td>384</td><td>Lightweight</td><td>Good balance for ReID; DINOv2-ViT-S is particularly strong</td></tr>
+      <tr><td><strong>Swin-T</strong></td><td>28M</td><td>768</td><td>Hierarchical</td><td>Shifted window attention; better spatial locality than ViT; strong on high-res inputs</td></tr>
+      <tr><td><strong>DINOv2-ViT-S/14</strong></td><td>22M</td><td>384</td><td>Self-supervised</td><td>Best zero-shot ReID features; local patch features align naturally with person/vehicle parts</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout purple">
+    <strong>Stride trick for ReID:</strong> Setting the last residual block's stride from 2 to 1 (in ResNet-50)
+    doubles the spatial resolution of the feature map from 8×16 to 16×32 (for 256×128 input).
+    This is critical for part-based models and horizontal stripe pooling because it preserves
+    the spatial layout needed to extract head/torso/leg features separately.
+  </div>
+  <details>
+    <summary>OSNet: Omni-Scale Network architecture details</summary>
+    <div class="detail-body">
+      <p>OSNet (Zhou et al., 2019) was designed specifically for person ReID with three design goals:</p>
+      <ul class="list">
+        <li><strong>Omni-scale feature learning:</strong> Each block has multiple receptive field sizes
+            (depthwise conv of varying dilation/kernel) whose outputs are aggregated via a learned
+            Unified Aggregation Gate (AG). This captures both fine-grained texture and coarse body shape.</li>
+        <li><strong>Lightweight:</strong> Only 2.2M parameters (10× smaller than ResNet-50) via
+            depthwise-separable convolutions — suitable for real-time inference.</li>
+        <li><strong>Pointwise aggregation:</strong> Feature maps from different scales are fused
+            element-wise after the AG, not by concatenation, keeping feature dimension constant.</li>
+      </ul>
+      <p>Despite its tiny size, OSNet-AIN (with Instance Normalization layers for appearance invariance)
+         achieves competitive results on Market-1501 (~94% Rank-1) — often better than ResNet-50-based methods.</p>
+    </div>
+  </details>
+  <details>
+    <summary>TransReID: Vision Transformer for ReID</summary>
+    <div class="detail-body">
+      <p>TransReID (He et al., 2021) adapts ViT for person and vehicle ReID with two key innovations:</p>
+      <ul class="list">
+        <li><strong>Jigsaw Patch Module (JPM):</strong> Randomly shuffles patch groups and feeds
+            them to separate transformer branches, creating diverse part-level features without
+            requiring explicit part detection. This encourages the model to learn robust local
+            representations from individual spatial regions.</li>
+        <li><strong>Side Information Embeddings (SIE):</strong> Camera ID and viewpoint labels are
+            encoded as learnable embeddings and added to the patch tokens. This allows the model to
+            explicitly condition its feature extraction on the known camera/viewpoint, greatly
+            reducing camera-induced style variation in the embedding space.</li>
+      </ul>
+      <p>TransReID-SSL (using DINOv2 or MoCo pretraining instead of supervised ImageNet) further
+         improves performance by 2–4% mAP on MSMT17.</p>
+    </div>
+  </details>
+</section>
+
+<!-- §5 EMBEDDING GENERATION -->
+<section id="embeddings">
+  <h2><span class="sec-num">5</span> Embedding Generation</h2>
+  <h3>From Feature Maps to Embeddings</h3>
+  <p>ReID embeddings must encode <em>identity-discriminative</em> information while being
+     invariant to viewpoint, illumination, and background. The pooling strategy is crucial —
+     different pooling schemes capture different levels of spatial structure.</p>
+
+  <!-- EMBEDDING PIPELINE SVG -->
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 860 180" width="820" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',system-ui,sans-serif">
+      <defs>
+        <marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#4f8ef7"/></marker>
+      </defs>
+      <rect x="10" y="50" width="100" height="80" rx="8" fill="#1e2330" stroke="#2a3045" stroke-width="1.5"/>
+      <text x="60" y="86" text-anchor="middle" fill="#e2e8f0" font-size="11" font-weight="600">Input</text>
+      <text x="60" y="102" text-anchor="middle" fill="#8892a4" font-size="9">256×128</text>
+      <text x="60" y="116" text-anchor="middle" fill="#8892a4" font-size="9">or 384×128</text>
+
+      <rect x="155" y="35" width="130" height="110" rx="8" fill="#1a2540" stroke="#4f8ef7" stroke-width="1.5"/>
+      <text x="220" y="64" text-anchor="middle" fill="#4f8ef7" font-size="11" font-weight="700">Backbone</text>
+      <text x="220" y="82" text-anchor="middle" fill="#8892a4" font-size="9">ResNet-50 (s=1)</text>
+      <text x="220" y="98" text-anchor="middle" fill="#8892a4" font-size="9">or OSNet / ViT</text>
+      <text x="220" y="116" text-anchor="middle" fill="#f6ad55" font-size="9">feat map: 16×32×2048</text>
+      <text x="220" y="130" text-anchor="middle" fill="#8892a4" font-size="8">(stride=1 trick)</text>
+
+      <rect x="335" y="50" width="105" height="80" rx="8" fill="#1e2330" stroke="#38b2ac" stroke-width="1.5"/>
+      <text x="387" y="82" text-anchor="middle" fill="#38b2ac" font-size="11" font-weight="600">GAP</text>
+      <text x="387" y="98" text-anchor="middle" fill="#8892a4" font-size="9">→ 2048-d vector</text>
+      <text x="387" y="114" text-anchor="middle" fill="#8892a4" font-size="8">global feature</text>
+
+      <rect x="490" y="50" width="115" height="80" rx="8" fill="#1e2330" stroke="#9f7aea" stroke-width="1.5"/>
+      <text x="547" y="78" text-anchor="middle" fill="#9f7aea" font-size="11" font-weight="600">BN-Neck</text>
+      <text x="547" y="95" text-anchor="middle" fill="#8892a4" font-size="9">BatchNorm(2048)</text>
+      <text x="547" y="111" text-anchor="middle" fill="#8892a4" font-size="9">no bias</text>
+
+      <rect x="655" y="35" width="185" height="110" rx="8" fill="#1e2330" stroke="#f6ad55" stroke-width="1.5"/>
+      <text x="747" y="58" text-anchor="middle" fill="#f6ad55" font-size="11" font-weight="700">Dual Head</text>
+      <rect x="668" y="68" width="75" height="32" rx="5" fill="#141820" stroke="#38b2ac"/>
+      <text x="705" y="82" text-anchor="middle" fill="#38b2ac" font-size="9">Embed Head</text>
+      <text x="705" y="94" text-anchor="middle" fill="#8892a4" font-size="8">→ 256-d L2</text>
+      <rect x="752" y="68" width="75" height="32" rx="5" fill="#141820" stroke="#f6ad55"/>
+      <text x="789" y="82" text-anchor="middle" fill="#f6ad55" font-size="9">Classifier</text>
+      <text x="789" y="94" text-anchor="middle" fill="#8892a4" font-size="8">→ N IDs</text>
+      <text x="747" y="128" text-anchor="middle" fill="#48bb78" font-size="8">Triplet + ID loss</text>
+
+      <line x1="110" y1="90" x2="152" y2="90" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="285" y1="90" x2="332" y2="90" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="440" y1="90" x2="487" y2="90" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="605" y1="90" x2="652" y2="90" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#a2)"/>
+    </svg>
+    <figcaption>Figure 5.1 — Standard ReID embedding pipeline with stride=1 backbone and BN-Neck</figcaption>
+  </div>
+
+  <h3>Pooling Strategies</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Strategy</th><th>Output</th><th>Captures</th><th>Used in</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Global Average Pooling (GAP)</strong></td><td>D-dim vector</td><td>Holistic identity features</td><td>BOT, OSNet, most baselines</td></tr>
+      <tr><td><strong>Global Max Pooling (GMP)</strong></td><td>D-dim vector</td><td>Strongest activations anywhere</td><td>Often combined with GAP</td></tr>
+      <tr><td><strong>Horizontal Stripe Pooling</strong></td><td>K×D (K stripes)</td><td>Spatial body parts (head/torso/legs)</td><td>PCB, MGN, AlignedReID</td></tr>
+      <tr><td><strong>Attention-weighted Pooling</strong></td><td>D-dim vector</td><td>Salient discriminative regions</td><td>CBAM, SE, TransReID</td></tr>
+      <tr><td><strong>Pyramid Pooling</strong></td><td>Multi-scale</td><td>Features at multiple granularities</td><td>MGN, Pyramid ReID</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>BN-Neck: The Standard ReID Trick</h3>
+  <p>The BN-Neck (Luo et al., 2019 — "Bag of Tricks") is the single most impactful
+     technique in modern ReID training. The key insight is to <strong>use different
+     features for the two training objectives:</strong></p>
+<pre><span class="kw">class</span> <span class="cls">ReIDModel</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, num_ids, embed_dim=<span class="num">256</span>):
+        <span class="kw">super</span>().__init__()
+        backbone = resnet50(pretrained=<span class="kw">True</span>)
+        <span class="cm"># Stride trick: last block stride 2 → 1</span>
+        backbone.layer4[<span class="num">0</span>].downsample[<span class="num">0</span>].stride = (<span class="num">1</span>, <span class="num">1</span>)
+        backbone.layer4[<span class="num">0</span>].conv2.stride          = (<span class="num">1</span>, <span class="num">1</span>)
+        self.backbone = nn.Sequential(*list(backbone.children())[:-<span class="num">2</span>])
+
+        self.pool    = nn.AdaptiveAvgPool2d(<span class="num">1</span>)   <span class="cm"># GAP → (B, 2048)</span>
+        self.bn_neck = nn.BatchNorm1d(<span class="num">2048</span>)      <span class="cm"># BN-Neck (no bias)</span>
+        self.bn_neck.bias.requires_grad_(<span class="kw">False</span>)
+
+        <span class="cm"># Classifier uses BN features (better ID loss convergence)</span>
+        self.classifier = nn.Linear(<span class="num">2048</span>, num_ids, bias=<span class="kw">False</span>)
+
+        <span class="cm"># Embedding head uses pre-BN or projected features for triplet loss</span>
+        self.embed_proj = nn.Sequential(
+            nn.Linear(<span class="num">2048</span>, embed_dim, bias=<span class="kw">False</span>),
+            nn.BatchNorm1d(embed_dim)
+        )
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):
+        feat   = self.pool(self.backbone(x)).flatten(<span class="num">1</span>)   <span class="cm"># (B, 2048) raw</span>
+        neck   = self.bn_neck(feat)                         <span class="cm"># BN-normalized</span>
+        logits = self.classifier(neck)                      <span class="cm"># ID classification</span>
+        emb    = F.normalize(self.embed_proj(neck), p=<span class="num">2</span>, dim=<span class="num">1</span>)  <span class="cm"># L2 embed</span>
+        <span class="kw">return</span> logits, emb, feat  <span class="cm"># feat used for triplet at inference-time search</span></pre>
+
+  <div class="callout">
+    <strong>Inference note:</strong> At test time, use the <em>BN-normalized features</em> (neck)
+    or the projected embedding (emb) for distance computation — not the raw pre-BN features.
+    The BN normalization removes camera/domain style variation, making embeddings from different
+    cameras more comparable.
+  </div>
+</section>
+
+<!-- §6 DUAL-HEAD ARCHITECTURE -->
+<section id="dualhead">
+  <h2><span class="sec-num">6</span> Dual-Head Architecture for ReID</h2>
+  <p>The standard modern ReID architecture combines an <strong>ID classification head</strong>
+     (cross-entropy / label smoothing) with an <strong>embedding head</strong> (triplet loss)
+     over a shared backbone. This joint training is often called the
+     <em>"ID loss + triplet loss"</em> paradigm and forms the backbone of the
+     Bag-of-Tricks (BOT) baseline and most SOTA methods.</p>
+
+  <!-- FULL DUAL-HEAD SVG -->
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 920 480" width="880" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',system-ui,sans-serif">
+      <defs>
+        <marker id="da" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#4f8ef7"/></marker>
+        <marker id="dg" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#48bb78"/></marker>
+        <marker id="dt" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#38b2ac"/></marker>
+        <marker id="df" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#f6ad55"/></marker>
+      </defs>
+
+      <!-- Input -->
+      <rect x="380" y="12" width="155" height="55" rx="8" fill="#1e2330" stroke="#2a3045" stroke-width="1.5"/>
+      <text x="457" y="36" text-anchor="middle" fill="#e2e8f0" font-size="11" font-weight="700">Input Image</text>
+      <text x="457" y="53" text-anchor="middle" fill="#8892a4" font-size="9">256×128 (person) / 224×224 (vehicle)</text>
+
+      <!-- Backbone -->
+      <rect x="300" y="100" width="314" height="64" rx="8" fill="#1a2540" stroke="#4f8ef7" stroke-width="2"/>
+      <text x="457" y="126" text-anchor="middle" fill="#4f8ef7" font-size="12" font-weight="700">Backbone (ResNet-50 stride=1 / OSNet / ViT)</text>
+      <text x="457" y="148" text-anchor="middle" fill="#8892a4" font-size="9">ImageNet pretrained · stride=1 last block · feature map: H×W×C</text>
+
+      <!-- GAP -->
+      <rect x="360" y="198" width="194" height="50" rx="8" fill="#1e2330" stroke="#38b2ac" stroke-width="1.5"/>
+      <text x="457" y="220" text-anchor="middle" fill="#38b2ac" font-size="11" font-weight="600">Global Avg Pool</text>
+      <text x="457" y="237" text-anchor="middle" fill="#8892a4" font-size="9">→ 2048-d feature vector (f)</text>
+
+      <!-- BN-Neck -->
+      <rect x="360" y="282" width="194" height="50" rx="8" fill="#1e2330" stroke="#9f7aea" stroke-width="1.5"/>
+      <text x="457" y="304" text-anchor="middle" fill="#9f7aea" font-size="11" font-weight="600">BN-Neck</text>
+      <text x="457" y="320" text-anchor="middle" fill="#8892a4" font-size="9">BatchNorm(2048, no bias) → f_bn</text>
+
+      <!-- Left: Embedding Head -->
+      <rect x="80" y="370" width="200" height="55" rx="8" fill="#1e2330" stroke="#38b2ac" stroke-width="1.5"/>
+      <text x="180" y="392" text-anchor="middle" fill="#38b2ac" font-size="11" font-weight="700">Embedding Head</text>
+      <text x="180" y="408" text-anchor="middle" fill="#8892a4" font-size="9">Linear(2048→256) → BN → L2-norm</text>
+      <text x="180" y="420" text-anchor="middle" fill="#8892a4" font-size="9">unit embedding e ∈ ℝ²⁵⁶</text>
+
+      <!-- Right: Classifier Head -->
+      <rect x="635" y="370" width="200" height="55" rx="8" fill="#1e2330" stroke="#f6ad55" stroke-width="1.5"/>
+      <text x="735" y="392" text-anchor="middle" fill="#f6ad55" font-size="11" font-weight="700">ID Classifier Head</text>
+      <text x="735" y="408" text-anchor="middle" fill="#8892a4" font-size="9">Linear(2048→N_ids, bias=False)</text>
+      <text x="735" y="420" text-anchor="middle" fill="#8892a4" font-size="9">cosine classifier (weights L2-normed)</text>
+
+      <!-- Loss labels -->
+      <text x="180" y="448" text-anchor="middle" fill="#48bb78" font-size="9" font-weight="700">↓ Batch-Hard Triplet Loss (m=0.3)</text>
+      <text x="735" y="448" text-anchor="middle" fill="#48bb78" font-size="9" font-weight="700">↓ Cross-Entropy (label smooth ε=0.1)</text>
+
+      <!-- Combined -->
+      <rect x="300" y="458" width="314" height="28" rx="6" fill="#1a2540" stroke="#48bb78" stroke-width="1.2"/>
+      <text x="457" y="477" text-anchor="middle" fill="#48bb78" font-size="11" font-weight="700">L_total = L_ID + L_triplet  (weighted sum)</text>
+
+      <!-- Optional: part stripe overlay -->
+      <rect x="14" y="100" width="120" height="64" rx="6" fill="#1e2330" stroke="#9f7aea" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="74" y="122" text-anchor="middle" fill="#9f7aea" font-size="9" font-weight="600">Optional</text>
+      <text x="74" y="136" text-anchor="middle" fill="#8892a4" font-size="8">Horizontal stripe</text>
+      <text x="74" y="148" text-anchor="middle" fill="#8892a4" font-size="8">pooling (PCB/MGN)</text>
+
+      <!-- SIE box (optional for vehicle) -->
+      <rect x="786" y="100" width="120" height="64" rx="6" fill="#1e2330" stroke="#f6ad55" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="846" y="118" text-anchor="middle" fill="#f6ad55" font-size="9" font-weight="600">Optional</text>
+      <text x="846" y="132" text-anchor="middle" fill="#8892a4" font-size="8">SIE: camera/view</text>
+      <text x="846" y="144" text-anchor="middle" fill="#8892a4" font-size="8">embeddings (ViT)</text>
+      <text x="846" y="156" text-anchor="middle" fill="#8892a4" font-size="8">TransReID</text>
+
+      <!-- Arrows -->
+      <line x1="457" y1="67" x2="457" y2="97" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#da)"/>
+      <line x1="457" y1="164" x2="457" y2="195" stroke="#38b2ac" stroke-width="1.5" marker-end="url(#dt)"/>
+      <line x1="457" y1="248" x2="457" y2="279" stroke="#9f7aea" stroke-width="1.5" marker-end="url(#da)"/>
+      <!-- BN → left -->
+      <polyline points="360,307 180,307 180,367" fill="none" stroke="#38b2ac" stroke-width="1.5" marker-end="url(#dt)"/>
+      <!-- BN → right -->
+      <polyline points="554,307 735,307 735,367" fill="none" stroke="#f6ad55" stroke-width="1.5" marker-end="url(#df)"/>
+      <!-- Path labels -->
+      <text x="265" y="302" fill="#38b2ac" font-size="9">embed path</text>
+      <text x="558" y="302" fill="#f6ad55" font-size="9">ID path</text>
+    </svg>
+    <figcaption>Figure 6.1 — Dual-head ReID architecture: shared backbone with BN-Neck, triplet embedding head (left) and ID classifier head (right). Dashed boxes show optional extensions.</figcaption>
+  </div>
+
+  <h3>Why ID Loss + Triplet Loss?</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>ID Loss (Cross-Entropy) role</h4>
+      <ul class="list" style="margin:6px 0 0">
+        <li>Provides strong, dense gradient signal from the first epoch</li>
+        <li>Forces inter-class separation in the classifier weight space</li>
+        <li>Stabilizes early training — triplet loss alone often diverges initially</li>
+        <li>The learned classifier weights become class prototypes useful for zero-shot retrieval</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Triplet Loss role</h4>
+      <ul class="list" style="margin:6px 0 0">
+        <li>Directly optimizes the embedding space geometry (what we use at test time)</li>
+        <li>Enforces a margin between same-ID and different-ID distances</li>
+        <li>Produces compact intra-class clusters and well-separated inter-class clusters</li>
+        <li>More aligned with the Rank-1 / mAP retrieval objective than CE</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Combined Loss Formula</h3>
+  <div class="math">
+    <div class="label">ReID Combined Loss (BOT formulation)</div>
+    L_total = L_ID(logits, y, ε=0.1)  +  L_triplet(embeddings, y, m=0.3)<br/><br/>
+    <span style="color:var(--muted); font-size:.82em">Note: equal weighting (α=β=1.0) works well; some works use α=1.0, β=0.3–0.5 early in training</span>
+  </div>
+
+  <h3>Variant Options</h3>
+  <div class="grid3">
+    <div class="arch-card">
+      <h4 style="color:var(--accent)">Option A: ID + Triplet (recommended)</h4>
+      <p>Standard BOT baseline. Triplet uses batch-hard mining with PKSampler (P=16, K=4).</p>
+      <div class="rec" style="color:var(--green)">★ Best starting point</div>
+    </div>
+    <div class="arch-card">
+      <h4 style="color:var(--accent2)">Option B: ID + ArcFace</h4>
+      <p>Replace CE with ArcFace (s=30, m=0.5). Strong angular margin; no mining needed. Best for large datasets.</p>
+      <div class="rec" style="color:var(--accent4)">SOTA direction</div>
+    </div>
+    <div class="arch-card">
+      <h4 style="color:var(--accent3)">Option C: ID + Triplet + Center Loss</h4>
+      <p>Adds a center loss to minimize intra-class scatter. Helps with viewpoint variation in vehicle ReID.</p>
+      <div class="rec" style="color:var(--muted)">More complex</div>
+    </div>
+  </div>
+</section>
+
+<!-- §7 METRIC LEARNING -->
+<section id="metric">
+  <h2><span class="sec-num">7</span> Metric Learning for ReID</h2>
+  <h3>7.1 Triplet Loss (Batch-Hard Mining)</h3>
+  <div class="math">
+    <div class="label">Batch-Hard Triplet Loss (Hermans et al., 2017)</div>
+    L = (1/P·K) Σ<sub>i</sub> max(0,  max<sub>j: y_j=y_i</sub> d(eᵢ,eⱼ)  −  min<sub>k: y_k≠y_i</sub> d(eᵢ,eₖ)  + m )<br/><br/>
+    <span style="color:var(--muted);font-size:.82em">d = Euclidean distance on L2-normalized embeddings, m = margin (0.3 typical)</span>
+  </div>
+<pre><span class="kw">def</span> <span class="fn">batch_hard_triplet_loss</span>(emb, labels, margin=<span class="num">0.3</span>):
+    <span class="cm"># emb: (N, D) L2-normalized; labels: (N,)</span>
+    dist  = <span class="num">2</span> - <span class="num">2</span> * (emb @ emb.T)          <span class="cm"># sq-Euclidean on unit sphere</span>
+    dist  = dist.clamp(min=<span class="num">0</span>).sqrt()
+    same  = labels.unsqueeze(<span class="num">0</span>) == labels.unsqueeze(<span class="num">1</span>)
+    pos_d = (dist * same.float()).max(dim=<span class="num">1</span>).values          <span class="cm"># hardest positive</span>
+    neg_d = dist.masked_fill(same, <span class="num">1e9</span>).min(dim=<span class="num">1</span>).values    <span class="cm"># hardest negative</span>
+    <span class="kw">return</span> (pos_d - neg_d + margin).clamp(min=<span class="num">0</span>).mean()</pre>
+
+  <h3>7.2 Circle Loss</h3>
+  <p>Circle Loss (Sun et al., 2020) unifies pair-based and class-based metrics by assigning
+     individual weights to each similarity score, allowing the model to focus differently
+     on similarities that are far from the decision boundary. It subsumes both contrastive
+     and triplet losses as special cases.</p>
+  <div class="math">
+    <div class="label">Circle Loss</div>
+    L = log[ 1  +  Σ<sub>j∈neg</sub> exp(γ·α_n_j·(s_n_j − Δ_n))  ·  Σ<sub>i∈pos</sub> exp(−γ·α_p_i·(s_p_i − Δ_p)) ]<br/><br/>
+    where s = cosine similarity, α = max(0, O±s) is the per-sample weighting factor,<br/>
+    O_p=1+m, O_n=−m, Δ_p=1−m, Δ_n=m, γ=scale
+  </div>
+  <div class="callout tip">
+    <strong>Circle Loss in practice:</strong> Use <code class="inline">m=0.25, γ=128</code>.
+    Drop-in replacement for triplet loss. Often outperforms it by 1–3% mAP on MSMT17
+    without requiring PKSampler or manual mining strategy changes.
+  </div>
+
+  <h3>7.3 ArcFace / CosFace for ReID</h3>
+  <p>Adapted from face recognition, ArcFace replaces the standard cross-entropy ID loss
+     with an angular margin version. Requires L2-normalized embeddings and weight vectors.</p>
+  <div class="math">
+    <div class="label">ArcFace ID Loss for ReID</div>
+    L_arc = CE(s·[cos(θ_y+m), cos(θ_j≠y)], y)<br/>
+    where θ_y = arccos(W_y^T · e), s=30 (scale), m=0.5 (margin)
+  </div>
+<pre><span class="kw">class</span> <span class="cls">ArcFaceHead</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, embed_dim, num_ids, s=<span class="num">30.0</span>, m=<span class="num">0.50</span>):
+        <span class="kw">super</span>().__init__()
+        self.s, self.m = s, m
+        self.W = nn.Parameter(torch.empty(num_ids, embed_dim))
+        nn.init.xavier_uniform_(self.W)
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, emb, labels):
+        cos_theta = F.linear(F.normalize(emb), F.normalize(self.W))
+        theta      = cos_theta.acos().clamp(<span class="num">0</span>, math.pi)
+        target_cos = (theta + self.m).cos()
+        logits     = cos_theta.scatter(<span class="num">1</span>, labels.unsqueeze(<span class="num">1</span>), target_cos.unsqueeze(<span class="num">1</span>))
+        <span class="kw">return</span> F.cross_entropy(self.s * logits, labels)</pre>
+
+  <h3>7.4 Center Loss</h3>
+  <p>Center Loss (Wen et al., 2016) maintains a learnable centroid for each class and
+     penalizes the distance from each embedding to its class center, reducing intra-class variance:</p>
+  <div class="math">
+    <div class="label">Center Loss</div>
+    L_center = (1/2) Σ<sub>i</sub> ‖eᵢ − c_{yᵢ}‖²<br/>
+    L_total = L_ID + λ · L_center + L_triplet  (λ=0.0005 typical)
+  </div>
+  <p>Particularly effective for vehicle ReID where the same vehicle instance must be matched
+     despite large viewpoint changes, and the class centroids naturally converge to a
+     viewpoint-invariant representation.</p>
+
+  <h3>7.5 Metric Learning Summary</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Loss</th><th>Type</th><th>Mining</th><th>Stability</th><th>Person ReID</th><th>Vehicle ReID</th></tr></thead>
+    <tbody>
+      <tr><td>ID (CE)</td><td>Classification</td><td>None</td><td><span class="badge green">High</span></td><td><span class="badge yellow">Good</span></td><td><span class="badge yellow">Good</span></td></tr>
+      <tr><td>ID (Label smooth)</td><td>Classification</td><td>None</td><td><span class="badge green">High</span></td><td><span class="badge green">Better</span></td><td><span class="badge green">Better</span></td></tr>
+      <tr><td><strong>Triplet (batch-hard)</strong></td><td>Metric</td><td>Batch-level</td><td><span class="badge yellow">Medium</span></td><td><span class="badge green">Very good</span></td><td><span class="badge green">Very good</span></td></tr>
+      <tr><td>Circle Loss</td><td>Metric</td><td>Implicit</td><td><span class="badge green">High</span></td><td><span class="badge purple">SOTA</span></td><td><span class="badge purple">SOTA</span></td></tr>
+      <tr><td>ArcFace</td><td>Angular</td><td>None</td><td><span class="badge green">High</span></td><td><span class="badge purple">SOTA</span></td><td><span class="badge purple">SOTA</span></td></tr>
+      <tr><td>Center Loss</td><td>Clustering</td><td>None</td><td><span class="badge green">High</span></td><td><span class="badge yellow">Supplement</span></td><td><span class="badge green">Useful</span></td></tr>
+      <tr><td>SupCon</td><td>Contrastive</td><td>Implicit (batch)</td><td><span class="badge green">High</span></td><td><span class="badge green">Very good</span></td><td><span class="badge green">Very good</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- §8 PART-BASED MODELS -->
+<section id="partbased">
+  <h2><span class="sec-num">8</span> Part-Based Models</h2>
+  <p>Global pooling discards spatial structure. Part-based models explicitly decompose the
+     image into spatial regions (stripes, semantic parts) and extract separate embeddings
+     for each region, then concatenate or aggregate them. This is particularly powerful for
+     person ReID where head, torso, and legs carry complementary information.</p>
+
+  <h3>PCB: Part-Based Convolutional Baseline</h3>
+  <p>PCB (Sun et al., 2018) divides the feature map into K horizontal stripes and applies
+     separate classifiers to each stripe's average-pooled representation.</p>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 200" width="720" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',system-ui,sans-serif">
+      <defs><marker id="pa" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#4f8ef7"/></marker></defs>
+      <!-- Backbone feature map -->
+      <rect x="10" y="20" width="80" height="160" rx="6" fill="#1a2540" stroke="#4f8ef7" stroke-width="1.5"/>
+      <text x="50" y="44" text-anchor="middle" fill="#4f8ef7" font-size="9" font-weight="600">Backbone</text>
+      <text x="50" y="58" text-anchor="middle" fill="#8892a4" font-size="8">feat map</text>
+      <text x="50" y="72" text-anchor="middle" fill="#8892a4" font-size="8">H×W×C</text>
+      <!-- stripe dividers -->
+      <line x1="10" y1="87" x2="90" y2="87" stroke="#2a3045" stroke-width="1" stroke-dasharray="3,2"/>
+      <line x1="10" y1="120" x2="90" y2="120" stroke="#2a3045" stroke-width="1" stroke-dasharray="3,2"/>
+      <line x1="10" y1="153" x2="90" y2="153" stroke="#2a3045" stroke-width="1" stroke-dasharray="3,2"/>
+      <text x="50" y="58" text-anchor="middle" fill="#8892a4" font-size="8"></text>
+      <text x="50" y="78" text-anchor="middle" fill="#9f7aea" font-size="8">stripe 1</text>
+      <text x="50" y="107" text-anchor="middle" fill="#9f7aea" font-size="8">stripe 2</text>
+      <text x="50" y="140" text-anchor="middle" fill="#9f7aea" font-size="8">stripe 3</text>
+      <text x="50" y="170" text-anchor="middle" fill="#9f7aea" font-size="8">stripe 4</text>
+
+      <line x1="90" y1="100" x2="130" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#pa)"/>
+
+      <!-- GAP per stripe -->
+      <rect x="130" y="25" width="80" height="150" rx="6" fill="#1e2330" stroke="#38b2ac" stroke-width="1.5"/>
+      <text x="170" y="43" text-anchor="middle" fill="#38b2ac" font-size="9" font-weight="600">Stripe GAP</text>
+      <rect x="140" y="52" width="60" height="24" rx="3" fill="#141820" stroke="#38b2ac"/>
+      <text x="170" y="68" text-anchor="middle" fill="#8892a4" font-size="8">p₁ (head)</text>
+      <rect x="140" y="82" width="60" height="24" rx="3" fill="#141820" stroke="#38b2ac"/>
+      <text x="170" y="98" text-anchor="middle" fill="#8892a4" font-size="8">p₂ (chest)</text>
+      <rect x="140" y="112" width="60" height="24" rx="3" fill="#141820" stroke="#38b2ac"/>
+      <text x="170" y="128" text-anchor="middle" fill="#8892a4" font-size="8">p₃ (waist)</text>
+      <rect x="140" y="142" width="60" height="24" rx="3" fill="#141820" stroke="#38b2ac"/>
+      <text x="170" y="158" text-anchor="middle" fill="#8892a4" font-size="8">p₄ (legs)</text>
+
+      <line x1="210" y1="100" x2="250" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#pa)"/>
+
+      <!-- Per-part BN+classifier -->
+      <rect x="250" y="25" width="90" height="150" rx="6" fill="#1e2330" stroke="#9f7aea" stroke-width="1.5"/>
+      <text x="295" y="43" text-anchor="middle" fill="#9f7aea" font-size="9" font-weight="600">Per-Part BN</text>
+      <text x="295" y="57" text-anchor="middle" fill="#8892a4" font-size="8">+ Classifier</text>
+      <rect x="260" y="64" width="70" height="20" rx="3" fill="#141820" stroke="#9f7aea"/>
+      <text x="295" y="78" text-anchor="middle" fill="#8892a4" font-size="8">BN+Linear</text>
+      <rect x="260" y="90" width="70" height="20" rx="3" fill="#141820" stroke="#9f7aea"/>
+      <text x="295" y="104" text-anchor="middle" fill="#8892a4" font-size="8">BN+Linear</text>
+      <rect x="260" y="116" width="70" height="20" rx="3" fill="#141820" stroke="#9f7aea"/>
+      <text x="295" y="130" text-anchor="middle" fill="#8892a4" font-size="8">BN+Linear</text>
+      <rect x="260" y="142" width="70" height="20" rx="3" fill="#141820" stroke="#9f7aea"/>
+      <text x="295" y="156" text-anchor="middle" fill="#8892a4" font-size="8">BN+Linear</text>
+
+      <line x1="340" y1="100" x2="380" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#pa)"/>
+
+      <!-- Concat -->
+      <rect x="380" y="55" width="80" height="90" rx="6" fill="#1e2330" stroke="#f6ad55" stroke-width="1.5"/>
+      <text x="420" y="80" text-anchor="middle" fill="#f6ad55" font-size="9" font-weight="600">Concat</text>
+      <text x="420" y="96" text-anchor="middle" fill="#8892a4" font-size="8">[p₁;p₂;p₃;p₄]</text>
+      <text x="420" y="110" text-anchor="middle" fill="#8892a4" font-size="8">→ K×D feat</text>
+      <text x="420" y="126" text-anchor="middle" fill="#8892a4" font-size="8">ID loss per</text>
+      <text x="420" y="140" text-anchor="middle" fill="#8892a4" font-size="8">part branch</text>
+
+      <line x1="460" y1="100" x2="500" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#pa)"/>
+
+      <!-- Inference -->
+      <rect x="500" y="55" width="110" height="90" rx="6" fill="#1e2330" stroke="#48bb78" stroke-width="1.5"/>
+      <text x="555" y="80" text-anchor="middle" fill="#48bb78" font-size="9" font-weight="600">Inference</text>
+      <text x="555" y="96" text-anchor="middle" fill="#8892a4" font-size="8">Concatenate part</text>
+      <text x="555" y="110" text-anchor="middle" fill="#8892a4" font-size="8">embeddings</text>
+      <text x="555" y="124" text-anchor="middle" fill="#8892a4" font-size="8">→ full descriptor</text>
+      <text x="555" y="138" text-anchor="middle" fill="#48bb78" font-size="8">distance = sum</text>
+
+      <!-- Label: person -->
+      <text x="50" y="195" text-anchor="middle" fill="#8892a4" font-size="8">256×128 input</text>
+      <text x="170" y="187" text-anchor="middle" fill="#8892a4" font-size="7">K=4 or 6 stripes</text>
+    </svg>
+    <figcaption>Figure 8.1 — PCB: Part-based Convolutional Baseline with K horizontal stripes</figcaption>
+  </div>
+
+  <h3>MGN: Multiple Granularity Network</h3>
+  <p>MGN (Wang et al., 2018) extends PCB with three parallel branches of different granularities:</p>
+  <ul class="list">
+    <li><strong>Branch 1:</strong> Global feature (no stripe split) — captures holistic identity</li>
+    <li><strong>Branch 2:</strong> 2-stripe split — upper/lower body</li>
+    <li><strong>Branch 3:</strong> 3-stripe split — head/torso/legs</li>
+  </ul>
+  <p>Each branch has its own classifier and contributes to the total ID loss. At inference, all
+     branch embeddings are concatenated to form the final descriptor. MGN achieves ~95% Rank-1
+     on Market-1501 and is still competitive with transformer-based methods.</p>
+
+  <h3>AlignedReID</h3>
+  <p>AlignedReID (Zhang et al., 2017) uses a dynamic alignment module that learns to
+     find the best horizontal alignment between two person images before computing
+     part-level distances, addressing misalignment due to pose variation.</p>
+
+  <h3>Part-based vs. Global: Tradeoffs</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Approach</th><th>Part detection</th><th>Person ReID</th><th>Vehicle ReID</th><th>Complexity</th></tr></thead>
+    <tbody>
+      <tr><td>Global (GAP only)</td><td>None</td><td><span class="badge yellow">Good</span></td><td><span class="badge yellow">Good</span></td><td><span class="badge green">Low</span></td></tr>
+      <tr><td>PCB (horizontal stripes)</td><td>Implicit (fixed)</td><td><span class="badge green">Very good</span></td><td><span class="badge yellow">Moderate (viewpoint sensitive)</span></td><td><span class="badge yellow">Medium</span></td></tr>
+      <tr><td>MGN (multi-granularity)</td><td>Implicit (fixed)</td><td><span class="badge purple">SOTA CNN</span></td><td><span class="badge yellow">Moderate</span></td><td><span class="badge yellow">Medium</span></td></tr>
+      <tr><td>Attention-based (ViT)</td><td>Learnable</td><td><span class="badge purple">SOTA</span></td><td><span class="badge green">Very good</span></td><td><span class="badge red">High</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout">
+    <strong>For vehicle ReID:</strong> Horizontal stripe pooling is less useful than for person ReID
+    because vehicles photographed from the front/rear look completely different from the side.
+    Attention-based or viewpoint-conditioned models (TransReID with SIE) work better.
+  </div>
+</section>
+
+<!-- §9 TRAINING -->
+<section id="training">
+  <h2><span class="sec-num">9</span> Training Strategy</h2>
+  <h3>PKSampler for ReID</h3>
+  <p>ReID training requires a PK-sampler (P identities × K images each per mini-batch)
+     to guarantee valid triplets. Typical settings: P=16, K=4 → batch=64.</p>
+<pre><span class="kw">class</span> <span class="cls">PKSampler</span>(Sampler):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, dataset_labels, P=<span class="num">16</span>, K=<span class="num">4</span>):
+        self.P, self.K = P, K
+        self.pid_index = defaultdict(list)
+        <span class="kw">for</span> i, pid <span class="kw">in</span> enumerate(dataset_labels):
+            self.pid_index[pid].append(i)
+        self.pids = [p <span class="kw">for</span> p, idxs <span class="kw">in</span> self.pid_index.items() <span class="kw">if</span> len(idxs) >= K]
+
+    <span class="kw">def</span> <span class="fn">__iter__</span>(self):
+        random.shuffle(self.pids)
+        <span class="kw">for</span> i <span class="kw">in</span> range(<span class="num">0</span>, len(self.pids) - self.P + <span class="num">1</span>, self.P):
+            batch_pids = self.pids[i:i+self.P]
+            batch_idxs = []
+            <span class="kw">for</span> pid <span class="kw">in</span> batch_pids:
+                idxs = random.choices(self.pid_index[pid], k=self.K)
+                batch_idxs.extend(idxs)
+            <span class="kw">yield from</span> batch_idxs</pre>
+
+  <h3>Bag-of-Tricks (BOT) Full Training Recipe</h3>
+  <p>The "Bag of Tricks for Person Re-identification" (Luo et al., 2019) standardized modern
+     ReID training. Its components, each contributing incrementally:</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Trick</th><th>Description</th><th>Approx. gain on Market-1501</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Warmup LR</strong></td><td>Linearly ramp LR from 0.01→0.1 in first 10 epochs</td><td>+0.6% Rank-1</td></tr>
+      <tr><td><strong>Random Erasing</strong></td><td>Randomly zero out a rectangular region (simulates occlusion)</td><td>+1.0% Rank-1</td></tr>
+      <tr><td><strong>Label Smoothing</strong></td><td>Soft targets (ε=0.1) for ID loss</td><td>+0.5% Rank-1</td></tr>
+      <tr><td><strong>Last Stride=1</strong></td><td>ResNet-50 layer4 stride changed to 1</td><td>+1.8% Rank-1</td></tr>
+      <tr><td><strong>BN-Neck</strong></td><td>BatchNorm after GAP, before classifier</td><td>+2.2% Rank-1</td></tr>
+      <tr><td><strong>Center Loss</strong></td><td>Penalize distance from class centroid</td><td>+0.9% Rank-1</td></tr>
+      <tr><td><strong>Combined ID+Triplet</strong></td><td>Both losses jointly</td><td>+1.5% Rank-1</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Data Augmentation for ReID</h3>
+<pre><span class="fn">train_transform</span> = T.Compose([
+    T.Resize((<span class="num">256</span>, <span class="num">128</span>), interpolation=T.BILINEAR),     <span class="cm"># person: 256×128</span>
+    T.Pad(<span class="num">10</span>),
+    T.RandomCrop((<span class="num">256</span>, <span class="num">128</span>)),                             <span class="cm"># random crop after padding</span>
+    T.RandomHorizontalFlip(p=<span class="num">0.5</span>),
+    T.ColorJitter(brightness=<span class="num">0.2</span>, contrast=<span class="num">0.15</span>, saturation=<span class="num">0.1</span>),
+    T.ToTensor(),
+    T.Normalize([<span class="num">0.485</span>, <span class="num">0.456</span>, <span class="num">0.406</span>], [<span class="num">0.229</span>, <span class="num">0.224</span>, <span class="num">0.225</span>]),
+    <span class="cls">RandomErasing</span>(probability=<span class="num">0.5</span>, sl=<span class="num">0.02</span>, sh=<span class="num">0.4</span>, r1=<span class="num">0.3</span>),  <span class="cm"># occlusion aug</span>
+])</pre>
+
+  <h3>Training Schedule</h3>
+  <div class="card">
+    <div class="grid2">
+      <div>
+        <h4>Optimizer &amp; LR</h4>
+        <ul class="list" style="margin:4px 0 0">
+          <li>Optimizer: SGD (momentum=0.9) or AdamW</li>
+          <li>Base LR: 0.035 (SGD) or 3e-4 (Adam)</li>
+          <li>Warmup: 10 epochs linear ramp</li>
+          <li>Decay: cosine (or step at epoch 40, 70)</li>
+          <li>Total epochs: 80–120</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Batch &amp; Sampler</h4>
+        <ul class="list" style="margin:4px 0 0">
+          <li>PKSampler: P=16, K=4 → batch=64</li>
+          <li>Weight decay: 5e-4</li>
+          <li>Gradient clip: max_norm=1.0</li>
+          <li>Mixed precision (fp16) for speed</li>
+          <li>Early stopping on mAP</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <h3>Camera-Aware Training (Vehicle ReID)</h3>
+  <p>For vehicle ReID, explicitly conditioning on camera ID improves results.
+     Three strategies:</p>
+  <ul class="list">
+    <li><strong>Camera ID embedding (SIE):</strong> Add a learnable camera embedding to the CLS token (TransReID)</li>
+    <li><strong>Camera-aware normalization:</strong> Separate BN statistics per camera to remove camera-induced style shift</li>
+    <li><strong>Hard negative mining across cameras:</strong> In PKSampler, ensure negatives are sampled from different cameras to avoid camera-correlated shortcuts</li>
+  </ul>
+</section>
+
+<!-- §10 EVALUATION -->
+<section id="evaluation">
+  <h2><span class="sec-num">10</span> Evaluation</h2>
+  <h3>Evaluation Protocol</h3>
+  <p>Standard ReID evaluation:</p>
+  <ol class="list">
+    <li>Extract embeddings for all query and gallery images</li>
+    <li>For each query, compute distance to every gallery image</li>
+    <li>Sort gallery by ascending distance (rank list)</li>
+    <li>Compute CMC and mAP over all queries</li>
+  </ol>
+  <div class="callout warn">
+    <strong>Same-camera same-ID images are excluded from the gallery</strong> during evaluation —
+    a query from camera 1 does not evaluate against gallery images from camera 1 of the same person,
+    since the same camera is trivially easy to match.
+  </div>
+
+  <h3>CMC Curve (Cumulative Matching Characteristics)</h3>
+  <p>CMC@K = probability that the correct match appears within the top-K ranked results.
+     Rank-1 (CMC@1) is the most reported metric.</p>
+  <div class="math">
+    <div class="label">CMC@K</div>
+    CMC(K) = (1/|Q|) Σ<sub>q</sub> 𝟙[rank(correct match for q) ≤ K]
+  </div>
+
+  <h3>Mean Average Precision (mAP)</h3>
+  <p>mAP accounts for multiple correct matches in the gallery (same ID across multiple cameras).
+     It penalizes models that retrieve correct matches at low ranks.</p>
+  <div class="math">
+    <div class="label">mAP</div>
+    AP(q) = (1/|R_q|) Σ<sub>k=1</sub><sup>|G|</sup> P(k) · rel(k)<br/><br/>
+    mAP = (1/|Q|) Σ<sub>q</sub> AP(q)<br/><br/>
+    <span style="color:var(--muted);font-size:.82em">|R_q| = number of relevant gallery images for query q; P(k) = precision at rank k; rel(k) = 1 if rank k is relevant</span>
+  </div>
+<pre><span class="kw">def</span> <span class="fn">compute_map_cmc</span>(qf, gf, q_pids, g_pids, q_cams, g_cams):
+    <span class="cm"># qf: (Nq,D) query embeddings; gf: (Ng,D) gallery embeddings</span>
+    dist = <span class="num">1</span> - qf @ gf.T              <span class="cm"># cosine distance (L2-normalized)</span>
+    cmc_scores, ap_scores = [], []
+    <span class="kw">for</span> qi <span class="kw">in</span> range(len(qf)):
+        order  = dist[qi].argsort()
+        <span class="cm"># Remove same-camera same-id distractors</span>
+        valid  = ~((g_pids[order] == q_pids[qi]) & (g_cams[order] == q_cams[qi]))
+        ranked = g_pids[order][valid]
+        <span class="cm"># CMC</span>
+        hits = (ranked == q_pids[qi]).astype(float)
+        cmc_scores.append(hits.cumsum())
+        <span class="cm"># AP</span>
+        idx  = np.where(hits)[<span class="num">0</span>] + <span class="num">1</span>
+        ap_scores.append((np.arange(<span class="num">1</span>, len(idx)+<span class="num">1</span>) / idx).mean() <span class="kw">if</span> len(idx) <span class="kw">else</span> <span class="num">0</span>)
+    cmc = np.mean(cmc_scores, axis=<span class="num">0</span>)
+    <span class="kw">return</span> cmc[<span class="num">0</span>], np.mean(ap_scores)  <span class="cm"># Rank-1, mAP</span></pre>
+
+  <h3>mINP (Mean Inverse Negative Penalty)</h3>
+  <p>mINP (Ye et al., 2021) measures the cost of finding <em>all</em> correct matches —
+     it focuses on the hardest positive (the correct match at the highest rank).
+     More sensitive than mAP for large-gallery evaluation:</p>
+  <div class="math">
+    <div class="label">mINP</div>
+    INP(q) = |R_q| / R_max(q)  where R_max is the rank of the last relevant item<br/>
+    mINP = (1/|Q|) Σ<sub>q</sub> INP(q)
+  </div>
+
+  <h3>Expected Benchmarks</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Method</th><th>Backbone</th><th colspan="2">Market-1501</th><th colspan="2">MSMT17</th><th>Year</th></tr>
+    <tr><th></th><th></th><th>mAP</th><th>Rank-1</th><th>mAP</th><th>Rank-1</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>BOT (strong baseline)</td><td>ResNet-50</td><td>85.9</td><td>94.5</td><td>52.1</td><td>74.1</td><td>2019</td></tr>
+      <tr><td>OSNet-AIN</td><td>OSNet</td><td>84.9</td><td>92.1</td><td>52.1</td><td>78.7</td><td>2019</td></tr>
+      <tr><td>MGN</td><td>ResNet-50</td><td>86.9</td><td>95.7</td><td>52.1</td><td>76.9</td><td>2018</td></tr>
+      <tr><td>AGW</td><td>ResNet-50</td><td>87.8</td><td>95.1</td><td>49.3</td><td>68.3</td><td>2021</td></tr>
+      <tr><td><strong>TransReID</strong></td><td>ViT-B/16</td><td><strong>88.9</strong></td><td><strong>95.2</strong></td><td><strong>67.4</strong></td><td><strong>85.3</strong></td><td>2021</td></tr>
+      <tr><td>TransReID-SSL</td><td>ViT-S/16 (DINOv2)</td><td>91.4</td><td>95.8</td><td>72.3</td><td>87.6</td><td>2022</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Method</th><th>Backbone</th><th colspan="2">VeRi-776</th><th colspan="2">VERI-Wild (large)</th><th>Year</th></tr>
+    <tr><th></th><th></th><th>mAP</th><th>Rank-1</th><th>mAP</th><th>Rank-1</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>SAVER (strong baseline)</td><td>ResNet-50</td><td>79.6</td><td>96.4</td><td>—</td><td>—</td><td>2020</td></tr>
+      <tr><td>TransReID (vehicle)</td><td>ViT-B/16</td><td>82.0</td><td>97.1</td><td>73.0</td><td>89.6</td><td>2021</td></tr>
+      <tr><td>PVEN</td><td>ResNet-50</td><td>79.5</td><td>95.6</td><td>—</td><td>—</td><td>2020</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- §11 SOTA SUMMARY -->
+<section id="sota">
+  <h2><span class="sec-num">11</span> SOTA Architecture Summary</h2>
+  <h3>Architecture Evolution Timeline</h3>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 860 200" width="820" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',system-ui,sans-serif">
+      <!-- Timeline line -->
+      <line x1="30" y1="100" x2="830" y2="100" stroke="#2a3045" stroke-width="2"/>
+      <!-- Year marks -->
+      <circle cx="80" cy="100" r="5" fill="#4f8ef7"/>
+      <text x="80" y="90" text-anchor="middle" fill="#8892a4" font-size="9">2017</text>
+      <rect x="40" y="112" width="80" height="44" rx="5" fill="#1e2330" stroke="#4f8ef7" stroke-width="1"/>
+      <text x="80" y="128" text-anchor="middle" fill="#4f8ef7" font-size="9" font-weight="700">AlignedReID</text>
+      <text x="80" y="142" text-anchor="middle" fill="#8892a4" font-size="7.5">Part alignment</text>
+      <text x="80" y="154" text-anchor="middle" fill="#8892a4" font-size="7.5">dynamic matching</text>
+
+      <circle cx="220" cy="100" r="5" fill="#9f7aea"/>
+      <text x="220" y="90" text-anchor="middle" fill="#8892a4" font-size="9">2018</text>
+      <rect x="175" y="112" width="90" height="44" rx="5" fill="#1e2330" stroke="#9f7aea" stroke-width="1"/>
+      <text x="220" y="128" text-anchor="middle" fill="#9f7aea" font-size="9" font-weight="700">PCB / MGN</text>
+      <text x="220" y="142" text-anchor="middle" fill="#8892a4" font-size="7.5">Part stripes</text>
+      <text x="220" y="154" text-anchor="middle" fill="#8892a4" font-size="7.5">Multi-granularity</text>
+
+      <circle cx="380" cy="100" r="5" fill="#38b2ac"/>
+      <text x="380" y="90" text-anchor="middle" fill="#8892a4" font-size="9">2019</text>
+      <rect x="330" y="112" width="100" height="44" rx="5" fill="#1e2330" stroke="#38b2ac" stroke-width="1"/>
+      <text x="380" y="128" text-anchor="middle" fill="#38b2ac" font-size="9" font-weight="700">BOT / OSNet</text>
+      <text x="380" y="142" text-anchor="middle" fill="#8892a4" font-size="7.5">BN-Neck tricks</text>
+      <text x="380" y="154" text-anchor="middle" fill="#8892a4" font-size="7.5">Omni-scale CNN</text>
+
+      <circle cx="550" cy="100" r="5" fill="#f6ad55"/>
+      <text x="550" y="90" text-anchor="middle" fill="#8892a4" font-size="9">2021</text>
+      <rect x="500" y="112" width="100" height="44" rx="5" fill="#1e2330" stroke="#f6ad55" stroke-width="1"/>
+      <text x="550" y="128" text-anchor="middle" fill="#f6ad55" font-size="9" font-weight="700">TransReID</text>
+      <text x="550" y="142" text-anchor="middle" fill="#8892a4" font-size="7.5">ViT + JPM + SIE</text>
+      <text x="550" y="154" text-anchor="middle" fill="#8892a4" font-size="7.5">Camera-aware</text>
+
+      <circle cx="730" cy="100" r="5" fill="#48bb78"/>
+      <text x="730" y="90" text-anchor="middle" fill="#8892a4" font-size="9">2022–24</text>
+      <rect x="676" y="112" width="108" height="44" rx="5" fill="#1e2330" stroke="#48bb78" stroke-width="1"/>
+      <text x="730" y="128" text-anchor="middle" fill="#48bb78" font-size="9" font-weight="700">TransReID-SSL</text>
+      <text x="730" y="142" text-anchor="middle" fill="#8892a4" font-size="7.5">DINOv2 / CLIP</text>
+      <text x="730" y="154" text-anchor="middle" fill="#8892a4" font-size="7.5">pretraining</text>
+    </svg>
+    <figcaption>Figure 11.1 — ReID architecture evolution (2017–2024)</figcaption>
+  </div>
+
+  <h3>Key Method Comparisons</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Method</th><th>Backbone</th><th>Loss</th><th>Part-based</th><th>Camera-aware</th><th>Highlight</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>BOT</strong></td><td>ResNet-50</td>
+        <td>ID + Triplet</td><td>No</td><td>No</td>
+        <td>BN-Neck, random erasing, label smoothing — strong CNN baseline</td>
+      </tr>
+      <tr>
+        <td><strong>OSNet</strong></td><td>OSNet (2.2M)</td>
+        <td>ID + Triplet</td><td>No</td><td>No</td>
+        <td>Tiny multi-scale model; real-time capable; excellent accuracy/param ratio</td>
+      </tr>
+      <tr>
+        <td><strong>PCB</strong></td><td>ResNet-50 (s=1)</td>
+        <td>K × ID loss</td><td>Yes (stripes)</td><td>No</td>
+        <td>Horizontal stripe pooling; strong on Market-1501</td>
+      </tr>
+      <tr>
+        <td><strong>MGN</strong></td><td>ResNet-50 (s=1)</td>
+        <td>Multi-branch ID+Triplet</td><td>Yes (multi-gran)</td><td>No</td>
+        <td>Multiple granularities; best CNN-based baseline for person ReID</td>
+      </tr>
+      <tr>
+        <td><strong>AGW</strong></td><td>ResNet-50</td>
+        <td>ID + Weighted Triplet</td><td>No</td><td>No</td>
+        <td>Attention-based global+local weighting; non-local attention</td>
+      </tr>
+      <tr>
+        <td><strong>TransReID</strong></td><td>ViT-B/16</td>
+        <td>ID + Triplet</td><td>Yes (JPM)</td><td>Yes (SIE)</td>
+        <td>ViT for ReID; jigsaw patches; camera/view side embeddings</td>
+      </tr>
+      <tr>
+        <td><strong>TransReID-SSL</strong></td><td>ViT-S/16 (DINOv2)</td>
+        <td>ID + Triplet</td><td>Yes (JPM)</td><td>Yes (SIE)</td>
+        <td>Self-supervised pretraining boosts performance significantly</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <h3>Recommended Architecture per Use Case</h3>
+  <div class="grid3">
+    <div class="arch-card">
+      <h4 style="color:var(--accent)">Quick Start / Prototype</h4>
+      <p><strong>OSNet</strong> or <strong>ResNet-50 BOT</strong>. Low complexity, well-documented,
+         fast to train on Market-1501 (~90 min on single GPU).</p>
+      <div class="rec" style="color:var(--green)">Train in hours</div>
+    </div>
+    <div class="arch-card">
+      <h4 style="color:var(--accent2)">Production CNN</h4>
+      <p><strong>MGN with ResNet-50-IBN</strong>. Multi-granularity + IBN-Net for domain robustness.
+         Good balance of accuracy, speed, and cross-domain generalization.</p>
+      <div class="rec" style="color:var(--accent4)">Best CNN pipeline</div>
+    </div>
+    <div class="arch-card">
+      <h4 style="color:var(--accent3)">SOTA / Research</h4>
+      <p><strong>TransReID with DINOv2 ViT-S/14</strong>. Best accuracy; heavy compute.
+         For vehicle ReID, add SIE (camera/viewpoint embeddings).</p>
+      <div class="rec" style="color:var(--muted)">Maximum accuracy</div>
+    </div>
+  </div>
+</section>
+
+<!-- §12 REFERENCES -->
+<section id="references">
+  <h2><span class="sec-num">12</span> References</h2>
+  <ol class="list" style="font-size:.89rem; line-height:1.85">
+    <li><strong>Zheng, L., Shen, L., Tian, L., et al.</strong> (2015). <em>Scalable Person Re-identification: A Benchmark.</em> ICCV 2015. <span class="footnote">[Market-1501 dataset]</span></li>
+    <li><strong>Wei, L., Zhang, S., Gao, W., &amp; Tian, Q.</strong> (2018). <em>Person Transfer GAN to Bridge Domain Gap for Person Re-Identification.</em> CVPR 2018. <span class="footnote">[MSMT17 dataset]</span></li>
+    <li><strong>Liu, X., Liu, W., et al.</strong> (2016). <em>A Deep Learning-Based Approach to Progressive Vehicle Re-identification for Urban Surveillance.</em> ECCV 2016. <span class="footnote">[VeRi-776]</span></li>
+    <li><strong>Sun, Y., Zheng, L., Yang, Y., et al.</strong> (2018). <em>Beyond Part Models: Person Retrieval with Refined Part Pooling and A Strong Convolutional Baseline.</em> ECCV 2018. <span class="footnote">[PCB]</span></li>
+    <li><strong>Wang, G., Yuan, Y., Chen, X., et al.</strong> (2018). <em>Learning Discriminative Features with Multiple Granularities for Person Re-Identification.</em> ACM MM 2018. <span class="footnote">[MGN]</span></li>
+    <li><strong>Hermans, A., Beyer, L., &amp; Leibe, B.</strong> (2017). <em>In Defense of the Triplet Loss for Person Re-Identification.</em> arXiv:1703.07737. <span class="footnote">[Batch-hard mining]</span></li>
+    <li><strong>Luo, H., Gu, Y., Liao, X., Lai, S., &amp; Jiang, W.</strong> (2019). <em>Bag of Tricks and A Strong Baseline for Deep Person Re-identification.</em> CVPR Workshops 2019. <span class="footnote">[BOT / BN-Neck]</span></li>
+    <li><strong>Zhou, K., Yang, Y., et al.</strong> (2019). <em>Omni-Scale Feature Learning for Person Re-Identification.</em> ICCV 2019. <span class="footnote">[OSNet]</span></li>
+    <li><strong>He, S., Luo, H., Wang, P., et al.</strong> (2021). <em>TransReID: Transformer-based Object Re-Identification.</em> ICCV 2021. <span class="footnote">[TransReID / JPM / SIE]</span></li>
+    <li><strong>Sun, Y., Cheng, C., Zhang, Y., et al.</strong> (2020). <em>Circle Loss: A Unified Perspective of Pair Similarity Optimization.</em> CVPR 2020. <span class="footnote">[Circle Loss]</span></li>
+    <li><strong>Deng, J., Guo, J., Xue, N., &amp; Zafeiriou, S.</strong> (2019). <em>ArcFace: Additive Angular Margin Loss for Deep Face Recognition.</em> CVPR 2019.</li>
+    <li><strong>Wen, Y., Zhang, K., Li, Z., &amp; Qiao, Y.</strong> (2016). <em>A Discriminative Feature Learning Approach for Deep Face Recognition.</em> ECCV 2016. <span class="footnote">[Center Loss]</span></li>
+    <li><strong>Pan, X., Luo, P., Shi, J., &amp; Tang, X.</strong> (2018). <em>Two at Once: Enhancing Learning and Generalization Capacities via IBN-Net.</em> ECCV 2018. <span class="footnote">[IBN-Net]</span></li>
+    <li><strong>Zheng, Z., Zheng, L., &amp; Yang, Y.</strong> (2017). <em>Unlabeled Samples Generated by GAN Improve the Person Re-identification Baseline in vitro.</em> ICCV 2017. <span class="footnote">[AGW precursor]</span></li>
+    <li><strong>Oquab, M., Darcet, T., et al.</strong> (2023). <em>DINOv2: Learning Robust Visual Features without Supervision.</em> arXiv:2304.07193.</li>
+    <li><strong>Ye, M., Shen, J., Lin, G., et al.</strong> (2021). <em>Deep Learning for Person Re-identification: A Survey and Outlook.</em> TPAMI 2021. <span class="footnote">[mINP metric; comprehensive survey]</span></li>
+  </ol>
+</section>
+
+</main>
+
+<script>
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks  = document.querySelectorAll('nav.sidebar a');
+  window.addEventListener('scroll', () => {
+    let cur = '';
+    sections.forEach(s => { if (window.scrollY >= s.offsetTop - 130) cur = s.id; });
+    navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + cur));
+  });
+</script>
+</body>
+</html>

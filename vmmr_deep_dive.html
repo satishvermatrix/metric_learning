@@ -1,0 +1,1550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VMMR: Vehicle Make &amp; Model Recognition — Deep Dive</title>
+  <style>
+    /* ── Base ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:        #0f1117;
+      --surface:   #181c24;
+      --card:      #1e2330;
+      --border:    #2a3045;
+      --accent:    #4f8ef7;
+      --accent2:   #9f7aea;
+      --accent3:   #38b2ac;
+      --accent4:   #f6ad55;
+      --green:     #48bb78;
+      --red:       #fc8181;
+      --text:      #e2e8f0;
+      --muted:     #8892a4;
+      --code-bg:   #141820;
+      --radius:    10px;
+      --font:      'Segoe UI', system-ui, -apple-system, sans-serif;
+      --mono:      'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    .page-wrap { display: flex; }
+    nav.sidebar {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: 240px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 28px 16px;
+      overflow-y: auto;
+      z-index: 100;
+    }
+    nav.sidebar .logo {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: .04em;
+      margin-bottom: 28px;
+      display: block;
+    }
+    nav.sidebar ul { list-style: none; }
+    nav.sidebar ul li { margin-bottom: 4px; }
+    nav.sidebar ul li a {
+      display: block;
+      padding: 6px 10px;
+      border-radius: 6px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: .85rem;
+      transition: all .18s;
+    }
+    nav.sidebar ul li a:hover,
+    nav.sidebar ul li a.active {
+      color: var(--text);
+      background: var(--card);
+    }
+    nav.sidebar ul li a .num {
+      display: inline-block;
+      width: 20px;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: .8rem;
+    }
+    main.content {
+      margin-left: 240px;
+      flex: 1;
+      max-width: 960px;
+      padding: 48px 52px 80px;
+    }
+
+    /* ── Header ───────────────────────────────────────────────── */
+    header.hero {
+      background: linear-gradient(135deg, #1a2540 0%, #0f1117 60%, #12182a 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 60px 52px 48px;
+      margin-left: 240px;
+    }
+    header.hero .tag {
+      display: inline-block;
+      background: rgba(79,142,247,.15);
+      border: 1px solid rgba(79,142,247,.35);
+      color: var(--accent);
+      border-radius: 20px;
+      padding: 3px 14px;
+      font-size: .78rem;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 18px;
+    }
+    header.hero h1 {
+      font-size: 2.4rem;
+      font-weight: 800;
+      line-height: 1.2;
+      color: #fff;
+      margin-bottom: 14px;
+    }
+    header.hero h1 span { color: var(--accent); }
+    header.hero p {
+      font-size: 1.05rem;
+      color: var(--muted);
+      max-width: 680px;
+    }
+
+    /* ── Section ──────────────────────────────────────────────── */
+    section { margin-bottom: 64px; }
+    section h2 {
+      font-size: 1.55rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    section h2 .sec-num {
+      background: var(--accent);
+      color: #fff;
+      font-size: .75rem;
+      font-weight: 800;
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    section h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin: 28px 0 10px;
+    }
+    section h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--accent4);
+      margin: 20px 0 8px;
+    }
+    p { margin-bottom: 14px; color: var(--text); }
+
+    /* ── Cards / callouts ─────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 26px;
+      margin: 20px 0;
+    }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: rgba(79,142,247,.07);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 14px 20px;
+      margin: 18px 0;
+      font-size: .95rem;
+    }
+    .callout.warn { border-left-color: var(--accent4); background: rgba(246,173,85,.07); }
+    .callout.tip  { border-left-color: var(--green);   background: rgba(72,187,120,.07); }
+
+    /* ── Code ─────────────────────────────────────────────────── */
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: .82rem;
+      line-height: 1.65;
+      margin: 18px 0;
+    }
+    code.inline {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: var(--mono);
+      font-size: .83em;
+      color: #a5d8ff;
+    }
+    .kw   { color: #c792ea; }
+    .fn   { color: #82aaff; }
+    .str  { color: #c3e88d; }
+    .cm   { color: #546e7a; font-style: italic; }
+    .num  { color: #f78c6c; }
+    .cls  { color: #ffcb6b; }
+
+    /* ── Tables ───────────────────────────────────────────────── */
+    .tbl-wrap { overflow-x: auto; margin: 20px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .88rem;
+    }
+    thead tr { background: var(--card); }
+    thead th {
+      padding: 11px 14px;
+      text-align: left;
+      font-weight: 700;
+      color: var(--accent);
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid var(--border); }
+    tbody tr:hover { background: rgba(255,255,255,.025); }
+    tbody td { padding: 10px 14px; vertical-align: top; }
+    .badge {
+      display: inline-block;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .badge.green  { background: rgba(72,187,120,.2);  color: var(--green); }
+    .badge.yellow { background: rgba(246,173,85,.2);  color: var(--accent4); }
+    .badge.red    { background: rgba(252,129,129,.2); color: var(--red); }
+    .badge.blue   { background: rgba(79,142,247,.2);  color: var(--accent); }
+    .badge.purple { background: rgba(159,122,234,.2); color: var(--accent2); }
+
+    /* ── SVG diagrams ─────────────────────────────────────────── */
+    .diagram-wrap {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 20px;
+      margin: 24px 0;
+      overflow-x: auto;
+      text-align: center;
+    }
+    .diagram-wrap figcaption {
+      font-size: .8rem;
+      color: var(--muted);
+      margin-top: 14px;
+      font-style: italic;
+    }
+
+    /* ── Math-style blocks ───────────────────────────────────── */
+    .math {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 22px;
+      font-family: var(--mono);
+      font-size: .9rem;
+      color: #e2e8f0;
+      margin: 16px 0;
+      letter-spacing: .02em;
+    }
+    .math .label {
+      font-size: .72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 6px;
+    }
+
+    /* ── Grid ─────────────────────────────────────────────────── */
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 20px 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin: 20px 0; }
+    @media (max-width: 760px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+    .arch-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .arch-card h4 { margin: 0 0 8px; font-size: .9rem; }
+    .arch-card p  { font-size: .85rem; color: var(--muted); margin: 0; }
+    .arch-card .rec {
+      margin-top: 10px;
+      font-size: .75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    /* ── Collapse ─────────────────────────────────────────────── */
+    details {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin: 14px 0;
+      padding: 0;
+    }
+    summary {
+      padding: 14px 18px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: .95rem;
+      color: var(--accent);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::before {
+      content: '▶';
+      font-size: .65rem;
+      transition: transform .2s;
+      color: var(--muted);
+    }
+    details[open] summary::before { transform: rotate(90deg); }
+    details .detail-body { padding: 0 18px 18px; }
+
+    /* ── Misc ─────────────────────────────────────────────────── */
+    ul.list, ol.list { padding-left: 22px; margin: 10px 0 16px; }
+    ul.list li, ol.list li { margin-bottom: 6px; color: var(--text); font-size: .95rem; }
+    hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+    .highlight { color: var(--accent); font-weight: 600; }
+    .footnote { font-size: .82rem; color: var(--muted); font-style: italic; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .toc-badge {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ──────────────────────────────────────────────────────────────
+     SIDEBAR
+───────────────────────────────────────────────────────────────── -->
+<nav class="sidebar">
+  <span class="logo">VMMR · Deep Dive</span>
+  <ul>
+    <li><a href="#intro"><span class="num">1.</span> Introduction</a></li>
+    <li><a href="#backbones"><span class="num">2.</span> Backbone Architectures</a></li>
+    <li><a href="#embeddings"><span class="num">3.</span> Embedding Generation</a></li>
+    <li><a href="#metric-learning"><span class="num">4.</span> Metric Learning</a></li>
+    <li><a href="#dual-head"><span class="num">5.</span> Dual-Head Architecture</a></li>
+    <li><a href="#pksampler"><span class="num">6.</span> PKSampler &amp; Mining</a></li>
+    <li><a href="#training"><span class="num">7.</span> Training Recipe</a></li>
+    <li><a href="#evaluation"><span class="num">8.</span> Evaluation</a></li>
+    <li><a href="#references"><span class="num">9.</span> References</a></li>
+  </ul>
+</nav>
+
+<!-- ──────────────────────────────────────────────────────────────
+     HERO
+───────────────────────────────────────────────────────────────── -->
+<header class="hero">
+  <div class="tag">Technical Deep Dive</div>
+  <h1>Vehicle Make &amp; Model<br/><span>Recognition (VMMR)</span></h1>
+  <p>A comprehensive study of fine-grained vehicle recognition — covering backbone architectures,
+     embedding generation, metric learning approaches, and the dual-head training paradigm
+     using the Stanford Cars dataset.</p>
+</header>
+
+<!-- ──────────────────────────────────────────────────────────────
+     MAIN CONTENT
+───────────────────────────────────────────────────────────────── -->
+<main class="content">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     §1  INTRODUCTION
+════════════════════════════════════════════════════════════════ -->
+<section id="intro">
+  <h2><span class="sec-num">1</span> Introduction to VMMR</h2>
+
+  <h3>What is Fine-Grained Visual Recognition?</h3>
+  <p>
+    <strong>Coarse classification</strong> distinguishes between fundamentally different visual categories
+    (car vs. truck vs. bus). <strong>Fine-grained visual recognition (FGVR)</strong> operates within a
+    single basic-level category — distinguishing a 2011 BMW 3 Series Sedan from a 2012 BMW 3 Series Sedan,
+    or a Toyota Camry from a Toyota Corolla.
+  </p>
+  <p>
+    VMMR is an instance of FGVR applied to vehicles. The output is typically a joint label
+    <code class="inline">(Make, Model, Year)</code>, which maps to one of the N leaf classes in a
+    taxonomy. For Stanford Cars, N = 196.
+  </p>
+
+  <div class="callout">
+    <strong>Key distinction:</strong> In VMMR the inter-class visual distance can be smaller than
+    intra-class distance. Two instances of the same model photographed from different angles can
+    look more dissimilar than two different models photographed identically. This is what makes VMMR
+    fundamentally harder than standard classification.
+  </div>
+
+  <h3>Why VMMR is Challenging</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>Inter-class Similarity</h4>
+      <p>Consecutive model years of the same vehicle often differ only in minor detail — grill shape,
+         badge position, wheel design. Subtle cues invisible to humans at scale must be learned.</p>
+    </div>
+    <div class="card">
+      <h4>Intra-class Variation</h4>
+      <p>The same vehicle model can appear vastly different due to viewpoint, lighting, occlusion,
+         color, after-market modification, and partial capture in surveillance footage.</p>
+    </div>
+    <div class="card">
+      <h4>Long-tail Distribution</h4>
+      <p>In real-world datasets, rare models (exotic sports cars, limited editions) have far fewer
+         training examples than common models, causing class imbalance.</p>
+    </div>
+    <div class="card">
+      <h4>Part Localization</h4>
+      <p>Discriminative regions (headlights, grill, badge) are small relative to the full image.
+         Models must implicitly localize these regions without explicit part supervision.</p>
+    </div>
+  </div>
+
+  <h3>Applications</h3>
+  <ul class="list">
+    <li><strong>Traffic surveillance &amp; law enforcement:</strong> Identify stolen or suspect vehicles from CCTV</li>
+    <li><strong>Insurance &amp; claims processing:</strong> Verify reported vehicle make/model automatically</li>
+    <li><strong>Autonomous driving:</strong> Understand surrounding vehicle types for behavioral prediction</li>
+    <li><strong>Fleet management:</strong> Automated inventory and tracking by model</li>
+    <li><strong>Parking management:</strong> Permit validation by registered vehicle model</li>
+    <li><strong>Automotive retail:</strong> Visual search ("find cars similar to this photo")</li>
+  </ul>
+
+  <h3>Stanford Cars Dataset</h3>
+  <div class="card">
+    <div class="grid3">
+      <div>
+        <p style="font-size:.8rem; color:var(--muted); margin:0">Total Images</p>
+        <p style="font-size:1.9rem; font-weight:800; color:var(--accent); margin:0">16,185</p>
+      </div>
+      <div>
+        <p style="font-size:.8rem; color:var(--muted); margin:0">Classes (Make/Model/Year)</p>
+        <p style="font-size:1.9rem; font-weight:800; color:var(--accent2); margin:0">196</p>
+      </div>
+      <div>
+        <p style="font-size:.8rem; color:var(--muted); margin:0">Train / Test Split</p>
+        <p style="font-size:1.9rem; font-weight:800; color:var(--accent3); margin:0">8,144 / 8,041</p>
+      </div>
+    </div>
+    <p style="margin-top:14px; font-size:.9rem;">
+      Each image carries a bounding box annotation and a class label. Classes span model years
+      from roughly 2003–2012 across many manufacturers. Due to the roughly 50/50 split,
+      each class has only ~41 training images on average — making transfer learning essential.
+    </p>
+    <p style="font-size:.85rem; color:var(--muted); margin:0">
+      <em>Source: Krause et al., "3D Object Representations for Fine-Grained Categorization", ICCV 2013.
+      Available via HuggingFace: <code class="inline">HuggingFaceM4/Stanford-Cars</code></em>
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     §2  BACKBONE ARCHITECTURES
+════════════════════════════════════════════════════════════════ -->
+<section id="backbones">
+  <h2><span class="sec-num">2</span> Backbone Architectures</h2>
+
+  <p>
+    The backbone is a deep convolutional (or transformer-based) network that maps a raw image tensor
+    to a compact feature vector. For VMMR we almost always initialize from ImageNet-pretrained weights
+    and fine-tune — because 8,144 training images are insufficient to learn good low-level visual features
+    from scratch.
+  </p>
+
+  <h3>Transfer Learning Rationale</h3>
+  <p>
+    Low-level features (edges, textures, colors) and mid-level features (object parts, surfaces)
+    learned on ImageNet transfer effectively to vehicle images. Only the high-level semantic features
+    and the final decision boundary need to be adapted. Fine-tuning typically yields 15–25% absolute
+    accuracy improvement over training from scratch on small datasets like Stanford Cars.
+  </p>
+
+  <h3>Candidate Backbones</h3>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Backbone</th>
+          <th>Params</th>
+          <th>Feature dim</th>
+          <th>Top-1 (ImageNet)</th>
+          <th>Suitability for VMMR</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>ResNet-50</strong></td>
+          <td>25M</td>
+          <td>2048</td>
+          <td>76.1%</td>
+          <td><span class="badge yellow">Good</span></td>
+          <td>Strong baseline; widely benchmarked on Stanford Cars (~91% top-1)</td>
+        </tr>
+        <tr>
+          <td><strong>ResNet-101</strong></td>
+          <td>44M</td>
+          <td>2048</td>
+          <td>77.4%</td>
+          <td><span class="badge yellow">Good</span></td>
+          <td>Marginal improvement over ResNet-50; higher compute cost</td>
+        </tr>
+        <tr>
+          <td><strong>EfficientNet-B0</strong></td>
+          <td>5.3M</td>
+          <td>1280</td>
+          <td>77.1%</td>
+          <td><span class="badge green">Excellent</span></td>
+          <td>Best accuracy/param ratio; fast to fine-tune; recommended starting point</td>
+        </tr>
+        <tr>
+          <td><strong>EfficientNet-B3</strong></td>
+          <td>12M</td>
+          <td>1536</td>
+          <td>81.6%</td>
+          <td><span class="badge green">Excellent</span></td>
+          <td>Higher accuracy at moderate cost; use 300×300 input</td>
+        </tr>
+        <tr>
+          <td><strong>EfficientNetV2-S</strong></td>
+          <td>21M</td>
+          <td>1280</td>
+          <td>83.9%</td>
+          <td><span class="badge green">Excellent</span></td>
+          <td>Faster training than EfficientNet-B3; progressive learning built-in</td>
+        </tr>
+        <tr>
+          <td><strong>ViT-B/16</strong></td>
+          <td>86M</td>
+          <td>768</td>
+          <td>81.8%</td>
+          <td><span class="badge blue">Strong</span></td>
+          <td>Global attention; excellent with DINOv2/CLIP pretraining; needs more data / longer fine-tune</td>
+        </tr>
+        <tr>
+          <td><strong>ConvNeXt-Tiny</strong></td>
+          <td>28M</td>
+          <td>768</td>
+          <td>82.1%</td>
+          <td><span class="badge blue">Strong</span></td>
+          <td>Modern pure-CNN; competitive with ViT; easier to fine-tune than transformers</td>
+        </tr>
+        <tr>
+          <td><strong>DINOv2-ViT-S/14</strong></td>
+          <td>22M</td>
+          <td>384</td>
+          <td>81.1%</td>
+          <td><span class="badge purple">SOTA</span></td>
+          <td>Self-supervised; exceptional zero-shot feature quality; excellent for metric learning head</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout tip">
+    <strong>Recommendation:</strong> Start with <strong>EfficientNet-B0</strong> for rapid prototyping
+    on standard hardware. Scale to <strong>EfficientNetV2-S</strong> or <strong>ConvNeXt-Small</strong>
+    when optimizing for accuracy. For a metric-learning-heavy pipeline, consider
+    <strong>DINOv2</strong> as the backbone since its features are already well-structured for
+    embedding-based retrieval.
+  </div>
+
+  <details>
+    <summary>Deep dive: EfficientNet compound scaling</summary>
+    <div class="detail-body">
+      <p>EfficientNet (Tan &amp; Le, 2019) proposes <em>compound scaling</em>: simultaneously
+         scaling network depth, width, and input resolution using a fixed ratio φ:</p>
+      <div class="math">
+        <div class="label">Scaling Equations</div>
+        depth: d = α<sup>φ</sup>,  width: w = β<sup>φ</sup>,  resolution: r = γ<sup>φ</sup><br/>
+        subject to: α · β² · γ² ≈ 2,  α ≥ 1, β ≥ 1, γ ≥ 1
+      </div>
+      <p>This ensures all three dimensions are scaled proportionally, preventing the common failure
+         mode of only scaling one dimension (e.g., very deep but narrow networks). EfficientNet-B0
+         is the baseline; B1-B7 multiply φ. This explains why all EfficientNet variants share the
+         same architectural skeleton but differ in scale.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Deep dive: Vision Transformer (ViT) for fine-grained recognition</summary>
+    <div class="detail-body">
+      <p>ViT (Dosovitskiy et al., 2020) splits the image into fixed 16×16 (or 14×14) patches,
+         linearly embeds each patch, and processes them with a standard Transformer encoder.
+         The CLS token's output at the last layer is used as the global image representation.</p>
+      <p>For FGVR, ViT's <em>global attention</em> is particularly powerful: the model can directly
+         attend to discriminative regions (e.g., headlight shape, grill pattern) across the entire
+         image without the locality constraint of convolutions. DINOv2-pretrained ViT features
+         exhibit strong semantic structure even without task-specific fine-tuning, making them
+         especially well-suited as embedding backbones.</p>
+      <p><strong>Caveat:</strong> ViT requires more images or longer training to converge well
+         when fine-tuning from scratch. Using pretrained DINOv2 or CLIP weights mitigates this.</p>
+    </div>
+  </details>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     §3  EMBEDDING GENERATION
+════════════════════════════════════════════════════════════════ -->
+<section id="embeddings">
+  <h2><span class="sec-num">3</span> Embedding Generation</h2>
+
+  <p>
+    An <strong>embedding</strong> is a dense, low-dimensional vector representation of an image such that
+    semantically similar images map to nearby points in the embedding space. The geometry of this space
+    is what metric learning methods directly optimize.
+  </p>
+
+  <h3>From Backbone to Feature Vector</h3>
+  <p>
+    Most CNN backbones end with a sequence of convolutional blocks producing a spatial feature map
+    of shape <code class="inline">(B, C, H, W)</code>. Converting this to a fixed-size vector
+    is done via:
+  </p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Global Average Pooling (GAP)</h4>
+      <p>Average each spatial location over the channel dimension. Produces a
+         <code class="inline">(B, C)</code> vector. Standard in ResNet, EfficientNet.</p>
+      <div class="math" style="font-size:.8rem">
+        f<sub>i</sub> = (1/HW) Σ<sub>h,w</sub> x<sub>i,h,w</sub>
+      </div>
+      <p style="font-size:.82rem; color:var(--muted)">Retains semantic content; discards spatial position.</p>
+    </div>
+    <div class="card">
+      <h4>Global Max Pooling (GMP)</h4>
+      <p>Take the maximum activation per channel. More discriminative for detecting the presence of
+         a feature anywhere in the image, but can be noisier.</p>
+      <div class="math" style="font-size:.8rem">
+        f<sub>i</sub> = max<sub>h,w</sub> x<sub>i,h,w</sub>
+      </div>
+      <p style="font-size:.82rem; color:var(--muted)">Often combined with GAP in fine-grained tasks.</p>
+    </div>
+  </div>
+
+  <!-- ── EMBEDDING PIPELINE SVG ── -->
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 820 200" width="800" xmlns="http://www.w3.org/2000/svg" style="font-family:var(--font)">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#4f8ef7"/>
+        </marker>
+      </defs>
+      <!-- boxes -->
+      <rect x="10" y="60" width="110" height="80" rx="8" fill="#1e2330" stroke="#2a3045" stroke-width="1.5"/>
+      <text x="65" y="96" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="600">Input</text>
+      <text x="65" y="114" text-anchor="middle" fill="#8892a4" font-size="10">224×224×3</text>
+
+      <rect x="160" y="60" width="130" height="80" rx="8" fill="#1e2330" stroke="#4f8ef7" stroke-width="1.5"/>
+      <text x="225" y="92" text-anchor="middle" fill="#4f8ef7" font-size="12" font-weight="600">Backbone</text>
+      <text x="225" y="110" text-anchor="middle" fill="#8892a4" font-size="10">EfficientNet-B0</text>
+      <text x="225" y="128" text-anchor="middle" fill="#8892a4" font-size="10">feature map</text>
+
+      <rect x="340" y="60" width="100" height="80" rx="8" fill="#1e2330" stroke="#38b2ac" stroke-width="1.5"/>
+      <text x="390" y="96" text-anchor="middle" fill="#38b2ac" font-size="12" font-weight="600">GAP</text>
+      <text x="390" y="114" text-anchor="middle" fill="#8892a4" font-size="10">→ 1280-d</text>
+
+      <rect x="490" y="60" width="120" height="80" rx="8" fill="#1e2330" stroke="#9f7aea" stroke-width="1.5"/>
+      <text x="550" y="92" text-anchor="middle" fill="#9f7aea" font-size="12" font-weight="600">BN-Neck</text>
+      <text x="550" y="110" text-anchor="middle" fill="#8892a4" font-size="10">BatchNorm(1280)</text>
+      <text x="550" y="128" text-anchor="middle" fill="#8892a4" font-size="10">+ dropout</text>
+
+      <rect x="660" y="60" width="140" height="80" rx="8" fill="#1e2330" stroke="#f6ad55" stroke-width="1.5"/>
+      <text x="730" y="88" text-anchor="middle" fill="#f6ad55" font-size="12" font-weight="600">Proj. Head</text>
+      <text x="730" y="106" text-anchor="middle" fill="#8892a4" font-size="10">Linear(1280→256)</text>
+      <text x="730" y="124" text-anchor="middle" fill="#8892a4" font-size="10">L2-normalize</text>
+
+      <!-- arrows -->
+      <line x1="120" y1="100" x2="157" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="290" y1="100" x2="337" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="440" y1="100" x2="487" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="610" y1="100" x2="657" y2="100" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#arr)"/>
+    </svg>
+    <figcaption>Figure 3.1 — Embedding generation pipeline from raw image to L2-normalized 256-d embedding vector</figcaption>
+  </div>
+
+  <h3>Projection Head Design</h3>
+  <p>
+    The projection head maps the backbone feature vector (e.g., 1280-d from EfficientNet-B0) to a
+    lower-dimensional embedding space used for metric learning. A common design:
+  </p>
+<pre><span class="kw">class</span> <span class="cls">EmbeddingHead</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, in_features=<span class="num">1280</span>, embed_dim=<span class="num">256</span>):
+        <span class="kw">super</span>().__init__()
+        self.proj = nn.Sequential(
+            nn.Linear(in_features, embed_dim, bias=<span class="kw">False</span>),
+            nn.BatchNorm1d(embed_dim),          <span class="cm"># stabilizes triplet training</span>
+        )
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):
+        emb = self.proj(x)
+        <span class="kw">return</span> F.normalize(emb, p=<span class="num">2</span>, dim=<span class="num">1</span>)  <span class="cm"># unit hypersphere</span></pre>
+
+  <h3>Why L2 Normalization Matters</h3>
+  <p>
+    Projecting embeddings onto the unit hypersphere (‖e‖₂ = 1) has two critical effects:
+  </p>
+  <ul class="list">
+    <li><strong>Bounded distances:</strong> Euclidean distance between unit vectors is in [0, 2], making
+        triplet margins interpretable and training more stable.</li>
+    <li><strong>Cosine similarity as dot product:</strong> For unit vectors, cosine similarity equals
+        the dot product — enabling efficient similarity search with FAISS or ScaNN at inference time.</li>
+    <li><strong>Prevents embedding collapse:</strong> Without normalization, the network can minimize
+        triplet loss by shrinking all embeddings toward zero. L2 normalization eliminates this degenerate
+        solution.</li>
+  </ul>
+
+  <h3>The BN-Neck Trick</h3>
+  <div class="callout">
+    <strong>BN-Neck</strong> (Luo et al., 2019) inserts a BatchNorm layer between the backbone features
+    and the classification/embedding heads. The key insight: the classification head sees the
+    BatchNorm-normalized features (which have better gradient flow for CE loss), while the embedding head
+    optionally operates before normalization. This decouples the two learning objectives partially,
+    stabilizing joint training with combined loss.
+  </div>
+
+  <h3>Embedding Dimension Choice</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Dim</th><th>Use Case</th><th>Storage (1M vectors)</th><th>Search Speed</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>64</td><td>Highly compressed, retrieval only</td><td>256 MB</td><td>Very fast</td></tr>
+        <tr><td>128</td><td>Face recognition (FaceNet standard)</td><td>512 MB</td><td>Fast</td></tr>
+        <td><strong>256</strong></td><td><strong>Recommended for VMMR</strong></td><td><strong>1 GB</strong></td><td><strong>Fast</strong></td>
+        <tr><td>512</td><td>High accuracy, large-scale retrieval</td><td>2 GB</td><td>Moderate</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     §4  METRIC LEARNING APPROACHES
+════════════════════════════════════════════════════════════════ -->
+<section id="metric-learning">
+  <h2><span class="sec-num">4</span> Metric Learning Approaches</h2>
+
+  <p>
+    Metric learning trains the model so that the learned distance function <em>d(x, y)</em> reflects
+    semantic similarity: small distance for same-class pairs, large distance for different-class pairs.
+    Below are the five major families, with deep dives on each.
+  </p>
+
+  <!-- ── APPROACH 1: CONTRASTIVE ── -->
+  <h3>4.1 Contrastive Loss (Siamese Networks)</h3>
+  <p>
+    Operates on <em>pairs</em> of images (x₁, x₂) with a binary label y ∈ {0, 1} indicating
+    same or different class.
+  </p>
+  <div class="math">
+    <div class="label">Contrastive Loss (Hadsell et al., 2006)</div>
+    L = y · d(e₁, e₂)² + (1 − y) · max(0, m − d(e₁, e₂))²
+  </div>
+  <p>
+    For same-class pairs (y=1), the loss minimizes distance. For different-class pairs (y=0),
+    it penalizes if the distance falls below margin m.
+  </p>
+  <div class="grid2">
+    <div class="card">
+      <h4 style="color:var(--green)">Pros</h4>
+      <ul class="list" style="margin:0">
+        <li>Simple, well-understood</li>
+        <li>Easy to implement</li>
+        <li>Natural for verification tasks</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 style="color:var(--red)">Cons</h4>
+      <ul class="list" style="margin:0">
+        <li>Requires careful pair construction</li>
+        <li>O(N²) pairs — hard to mine efficiently</li>
+        <li>No relative ordering (only absolute threshold)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ── APPROACH 2: TRIPLET LOSS ── -->
+  <h3>4.2 Triplet Loss</h3>
+  <p>
+    Operates on <em>triplets</em> (anchor a, positive p, negative n): same class for (a,p),
+    different class for (a,n). The objective enforces d(a,p) + margin &lt; d(a,n).
+  </p>
+  <div class="math">
+    <div class="label">Triplet Loss (Schroff et al., FaceNet 2015)</div>
+    L = Σ<sub>i</sub> max(0,  d(aᵢ, pᵢ)² − d(aᵢ, nᵢ)² + α)
+  </div>
+
+  <h4>Mining Strategies</h4>
+  <p>
+    The choice of which triplets to present during training is critical. Easy triplets (already
+    satisfying the margin) provide zero gradient. Hard triplets are the most informative but can
+    cause instability early in training.
+  </p>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Strategy</th><th>Positive selection</th><th>Negative selection</th><th>Stability</th><th>Speed</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Batch Random</td>
+          <td>Random positive</td>
+          <td>Random negative</td>
+          <td><span class="badge green">High</span></td>
+          <td><span class="badge green">Fast</span></td>
+        </tr>
+        <tr>
+          <td>Semi-Hard</td>
+          <td>Random positive</td>
+          <td>Neg: d(a,n) &gt; d(a,p), but d(a,n) &lt; d(a,p) + margin</td>
+          <td><span class="badge yellow">Medium</span></td>
+          <td><span class="badge yellow">Medium</span></td>
+        </tr>
+        <tr>
+          <td><strong>Batch Hard</strong></td>
+          <td>Hardest positive (max d in batch)</td>
+          <td>Hardest negative (min d in batch)</td>
+          <td><span class="badge yellow">Medium</span></td>
+          <td><span class="badge green">Fast</span></td>
+        </tr>
+        <tr>
+          <td>Batch All</td>
+          <td>All positives</td>
+          <td>All valid negatives</td>
+          <td><span class="badge red">Low (early training)</span></td>
+          <td><span class="badge red">Slow</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <details>
+    <summary>Batch-hard mining: algorithm walkthrough</summary>
+    <div class="detail-body">
+      <p>
+        Given a batch of <em>N</em> embeddings with labels, compute the full N×N distance matrix.
+        For each anchor <em>i</em>:
+      </p>
+      <ul class="list">
+        <li><strong>Hardest positive:</strong> Among all j with label[j] == label[i], pick j* = argmax d(i, j)</li>
+        <li><strong>Hardest negative:</strong> Among all k with label[k] ≠ label[i], pick k* = argmin d(i, k)</li>
+      </ul>
+<pre><span class="kw">def</span> <span class="fn">batch_hard_triplet_loss</span>(embeddings, labels, margin=<span class="num">0.3</span>):
+    <span class="cm"># embeddings: (N, D), L2-normalized</span>
+    dist = <span class="num">2</span> - <span class="num">2</span> * embeddings @ embeddings.T    <span class="cm"># squared Euclidean on unit sphere</span>
+    dist = dist.clamp(min=<span class="num">0</span>).sqrt()
+
+    same = labels.unsqueeze(<span class="num">0</span>) == labels.unsqueeze(<span class="num">1</span>)  <span class="cm"># (N, N) bool</span>
+
+    <span class="cm"># Hardest positive: max dist among same-class pairs</span>
+    pos_dist = (dist * same.float()).max(dim=<span class="num">1</span>).values
+
+    <span class="cm"># Hardest negative: min dist among diff-class pairs</span>
+    neg_dist = dist.masked_fill(same, float(<span class="str">'inf'</span>)).min(dim=<span class="num">1</span>).values
+
+    loss = (pos_dist - neg_dist + margin).clamp(min=<span class="num">0</span>)
+    <span class="kw">return</span> loss.mean()</pre>
+    </div>
+  </details>
+
+  <!-- ── APPROACH 3: ARCFACE ── -->
+  <h3>4.3 ArcFace / CosFace (Angular Margin Losses)</h3>
+  <p>
+    Instead of operating on pairs or triplets, ArcFace/CosFace work within the classification
+    framework but add an angular margin to the softmax logits, directly optimizing the geometry
+    of the embedding space.
+  </p>
+  <div class="math">
+    <div class="label">ArcFace Loss (Deng et al., 2019)</div>
+    L = −log [ e^(s · cos(θ_yᵢ + m)) / (e^(s · cos(θ_yᵢ + m)) + Σ<sub>j≠yᵢ</sub> e^(s · cos(θⱼ))) ]<br/>
+    where θ_yᵢ = angle between embedding and class weight vector, s = scale, m = angular margin
+  </div>
+  <div class="math">
+    <div class="label">CosFace (Wang et al., 2018)</div>
+    L = −log [ e^(s · (cos(θ_yᵢ) − m)) / (e^(s · (cos(θ_yᵢ) − m)) + Σ<sub>j≠yᵢ</sub> e^(s · cos(θⱼ))) ]
+  </div>
+  <p>
+    ArcFace adds the margin <em>m</em> to the angle before computing cosine — this creates a stricter
+    angular boundary than CosFace's additive cosine margin, but both achieve state-of-the-art results
+    on face verification and vehicle re-identification benchmarks.
+  </p>
+  <div class="callout tip">
+    <strong>Why this is powerful for VMMR:</strong> ArcFace forces the network to separate classes
+    by a minimum angular gap on the hypersphere. The class weight vectors become well-spaced
+    "class prototypes." At inference, classification and embedding-based retrieval both work
+    from the same learned geometry.
+  </div>
+
+  <!-- ── APPROACH 4: ProxyNCA ── -->
+  <h3>4.4 ProxyNCA</h3>
+  <p>
+    ProxyNCA (Movshovitz-Attias et al., 2017) assigns a learnable <em>proxy</em> vector to each class.
+    Instead of mining pairs/triplets of images, each image is compared only against these proxies —
+    dramatically reducing the O(N³) problem of triplet mining to O(N).
+  </p>
+  <div class="math">
+    <div class="label">ProxyNCA Loss</div>
+    L(x) = −log [ exp(−d(x, p_{y})) / Σ<sub>z≠y</sub> exp(−d(x, p_z)) ]
+  </div>
+  <p>
+    Proxies are trainable parameters and converge to be representative of their class cluster.
+    No mining required; loss is stable and efficient. Particularly well-suited when classes are
+    well-separated (which is not always the case in VMMR).
+  </p>
+
+  <!-- ── APPROACH 5: SupCon ── -->
+  <h3>4.5 Supervised Contrastive Loss (SupCon)</h3>
+  <p>
+    SupCon (Khosla et al., NeurIPS 2020) extends self-supervised contrastive learning (SimCLR)
+    to the supervised setting: for each anchor, all same-class images in the batch serve as
+    positives, and all different-class images serve as negatives.
+  </p>
+  <div class="math">
+    <div class="label">SupCon Loss</div>
+    L = Σ<sub>i</sub> (−1/|P(i)|) Σ<sub>p∈P(i)</sub> log [ exp(zᵢ·zₚ/τ) / Σ<sub>a∈A(i)</sub> exp(zᵢ·zₐ/τ) ]<br/>
+    where P(i) = same-class indices, A(i) = all other indices, τ = temperature
+  </div>
+  <p>
+    SupCon is significantly more stable than triplet loss (no fragile mining needed) and often
+    outperforms it. It naturally makes use of all positive pairs in the batch, giving richer
+    gradient signal. Temperature τ (typically 0.07) controls the concentration of the distribution.
+  </p>
+
+  <!-- ── COMPARISON TABLE ── -->
+  <h3>Approach Comparison</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Approach</th>
+          <th>Input unit</th>
+          <th>Mining</th>
+          <th>Stability</th>
+          <th>VMMR perf.</th>
+          <th>Impl. effort</th>
+          <th>Best for</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Contrastive</td>
+          <td>Pairs</td>
+          <td><span class="badge red">Hard (O(N²))</span></td>
+          <td><span class="badge yellow">Medium</span></td>
+          <td><span class="badge yellow">Good</span></td>
+          <td><span class="badge green">Low</span></td>
+          <td>Verification</td>
+        </tr>
+        <tr>
+          <td><strong>Triplet (batch-hard)</strong></td>
+          <td>Triplets</td>
+          <td><span class="badge yellow">Medium</span></td>
+          <td><span class="badge yellow">Medium</span></td>
+          <td><span class="badge green">Very good</span></td>
+          <td><span class="badge yellow">Medium</span></td>
+          <td>Retrieval + classification</td>
+        </tr>
+        <tr>
+          <td>ArcFace</td>
+          <td>Single image</td>
+          <td><span class="badge green">None</span></td>
+          <td><span class="badge green">High</span></td>
+          <td><span class="badge purple">SOTA</span></td>
+          <td><span class="badge yellow">Medium</span></td>
+          <td>Closed-set classification</td>
+        </tr>
+        <tr>
+          <td>ProxyNCA</td>
+          <td>Image + proxies</td>
+          <td><span class="badge green">None</span></td>
+          <td><span class="badge green">High</span></td>
+          <td><span class="badge green">Very good</span></td>
+          <td><span class="badge green">Low</span></td>
+          <td>Fixed-class retrieval</td>
+        </tr>
+        <tr>
+          <td>SupCon</td>
+          <td>Batch</td>
+          <td><span class="badge green">Implicit</span></td>
+          <td><span class="badge green">High</span></td>
+          <td><span class="badge purple">SOTA</span></td>
+          <td><span class="badge yellow">Medium</span></td>
+          <td>Both classification &amp; retrieval</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     §5  DUAL-HEAD ARCHITECTURE
+════════════════════════════════════════════════════════════════ -->
+<section id="dual-head">
+  <h2><span class="sec-num">5</span> Dual-Head Architecture</h2>
+
+  <p>
+    The dual-head architecture trains a single backbone jointly under two complementary objectives:
+    a <strong>classification head</strong> optimized with cross-entropy, and an
+    <strong>embedding head</strong> optimized with triplet loss. The backbone is shared —
+    gradients from both losses propagate through it simultaneously.
+  </p>
+
+  <h3>Motivation for the Dual-Head Design</h3>
+  <ul class="list">
+    <li><strong>Cross-entropy alone</strong> produces a classification boundary but may not structure
+        the feature space for retrieval. Similar classes may share a region of the embedding space
+        but aren't explicitly separated.</li>
+    <li><strong>Triplet loss alone</strong> can produce a well-structured embedding space but the
+        training is fragile — requires careful mining and the PKSampler; convergence is slower.</li>
+    <li><strong>Combined:</strong> CE provides stable, fast early convergence (class signal is clear
+        from the beginning). Triplet loss then refines the embedding geometry. The two objectives
+        complement each other.</li>
+  </ul>
+
+  <!-- ── DUAL-HEAD ARCHITECTURE SVG ── -->
+  <h3>Architecture Diagram</h3>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 900 430" width="860" xmlns="http://www.w3.org/2000/svg"
+         style="font-family: 'Segoe UI', system-ui, sans-serif;">
+      <defs>
+        <marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#4f8ef7"/>
+        </marker>
+        <marker id="a3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#38b2ac"/>
+        </marker>
+        <marker id="a4" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#9f7aea"/>
+        </marker>
+        <marker id="a5" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#f6ad55"/>
+        </marker>
+      </defs>
+
+      <!-- ── Row 1: Input ── -->
+      <rect x="370" y="10" width="160" height="60" rx="8" fill="#1e2330" stroke="#2a3045" stroke-width="1.5"/>
+      <text x="450" y="36" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="700">Input Image</text>
+      <text x="450" y="56" text-anchor="middle" fill="#8892a4" font-size="10">224 × 224 × 3</text>
+
+      <!-- ── Row 2: Backbone ── -->
+      <rect x="290" y="110" width="320" height="66" rx="8" fill="#1a2540" stroke="#4f8ef7" stroke-width="2"/>
+      <text x="450" y="136" text-anchor="middle" fill="#4f8ef7" font-size="13" font-weight="700">EfficientNet-B0 Backbone</text>
+      <text x="450" y="156" text-anchor="middle" fill="#8892a4" font-size="10">ImageNet pretrained · freeze early blocks · fine-tune last N</text>
+
+      <!-- ── Row 3: GAP ── -->
+      <rect x="360" y="210" width="180" height="50" rx="8" fill="#1e2330" stroke="#38b2ac" stroke-width="1.5"/>
+      <text x="450" y="232" text-anchor="middle" fill="#38b2ac" font-size="12" font-weight="600">Global Avg Pool</text>
+      <text x="450" y="250" text-anchor="middle" fill="#8892a4" font-size="10">→ 1280-d feature vector</text>
+
+      <!-- ── Row 4: BN-Neck ── -->
+      <rect x="360" y="292" width="180" height="50" rx="8" fill="#1e2330" stroke="#9f7aea" stroke-width="1.5"/>
+      <text x="450" y="314" text-anchor="middle" fill="#9f7aea" font-size="12" font-weight="600">BN-Neck</text>
+      <text x="450" y="332" text-anchor="middle" fill="#8892a4" font-size="10">BatchNorm(1280) + Dropout</text>
+
+      <!-- ── LEFT branch: Embedding ── -->
+      <rect x="80" y="380" width="190" height="40" rx="8" fill="#1e2330" stroke="#38b2ac" stroke-width="1.5"/>
+      <text x="175" y="396" text-anchor="middle" fill="#38b2ac" font-size="11" font-weight="700">Embedding Head</text>
+      <text x="175" y="412" text-anchor="middle" fill="#8892a4" font-size="9">Linear(1280→256) → BN → L2-norm</text>
+
+      <!-- ── RIGHT branch: Classifier ── -->
+      <rect x="630" y="380" width="190" height="40" rx="8" fill="#1e2330" stroke="#f6ad55" stroke-width="1.5"/>
+      <text x="725" y="396" text-anchor="middle" fill="#f6ad55" font-size="11" font-weight="700">Classifier Head</text>
+      <text x="725" y="412" text-anchor="middle" fill="#8892a4" font-size="9">Linear(1280→196) → Softmax</text>
+
+      <!-- ── Arrows: input → backbone ── -->
+      <line x1="450" y1="70" x2="450" y2="107" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#a2)"/>
+      <!-- backbone → GAP -->
+      <line x1="450" y1="176" x2="450" y2="207" stroke="#38b2ac" stroke-width="1.5" marker-end="url(#a3)"/>
+      <!-- GAP → BN-Neck -->
+      <line x1="450" y1="260" x2="450" y2="289" stroke="#9f7aea" stroke-width="1.5" marker-end="url(#a4)"/>
+      <!-- BN-Neck → left branch -->
+      <polyline points="360,317 175,317 175,377" fill="none" stroke="#38b2ac" stroke-width="1.5" marker-end="url(#a3)"/>
+      <!-- BN-Neck → right branch -->
+      <polyline points="540,317 725,317 725,377" fill="none" stroke="#f6ad55" stroke-width="1.5" marker-end="url(#a5)"/>
+
+      <!-- Labels on split lines -->
+      <text x="255" y="310" fill="#38b2ac" font-size="10">embedding path</text>
+      <text x="555" y="310" fill="#f6ad55" font-size="10">classifier path</text>
+
+      <!-- Loss labels below heads -->
+      <text x="175" y="435" text-anchor="middle" fill="#48bb78" font-size="9" font-weight="600">↓ Triplet Loss  (batch-hard, m=0.3)</text>
+      <text x="725" y="435" text-anchor="middle" fill="#48bb78" font-size="9" font-weight="600">↓ CE Loss  (label smooth ε=0.1)</text>
+
+      <!-- Combined loss label -->
+      <rect x="290" y="445" width="320" height="28" rx="6" fill="#1a2540" stroke="#48bb78" stroke-width="1"/>
+      <text x="450" y="464" text-anchor="middle" fill="#48bb78" font-size="11" font-weight="700">Combined: L = α·L_CE + β·L_triplet</text>
+    </svg>
+    <figcaption>Figure 5.1 — Dual-Head VMMR architecture: shared EfficientNet-B0 backbone with BN-Neck, split into embedding head (triplet loss) and classifier head (CE loss)</figcaption>
+  </div>
+
+  <h3>Combined Loss</h3>
+  <div class="math">
+    <div class="label">Total Training Loss</div>
+    L_total = α · L_CE(logits, y, ε=0.1)  +  β · L_triplet(embeddings, y, m=0.3)<br/><br/>
+    where α, β are loss weights (default: α=1.0, β=1.0)
+  </div>
+<pre><span class="kw">class</span> <span class="cls">CombinedLoss</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, alpha=<span class="num">1.0</span>, beta=<span class="num">1.0</span>, margin=<span class="num">0.3</span>, label_smoothing=<span class="num">0.1</span>):
+        <span class="kw">super</span>().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.ce = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+        self.margin = margin
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, logits, embeddings, labels):
+        l_ce = self.ce(logits, labels)
+        l_tri = batch_hard_triplet_loss(embeddings, labels, self.margin)
+        <span class="kw">return</span> self.alpha * l_ce + self.beta * l_tri, l_ce.item(), l_tri.item()</pre>
+
+  <h3>Alternative Dual-Head Options</h3>
+  <div class="grid3">
+    <div class="arch-card">
+      <h4 style="color:var(--accent)">Option A — Shared BN-Neck (Recommended)</h4>
+      <p>Both heads branch from a single shared BatchNorm neck after GAP. Heads share the normalized representation.</p>
+      <div class="rec" style="color:var(--green)">★ Recommended — most stable joint training</div>
+    </div>
+    <div class="arch-card">
+      <h4 style="color:var(--accent2)">Option B — Independent Heads</h4>
+      <p>Both heads attach directly to the raw GAP output with no shared neck. Each head has its own BN/projection.</p>
+      <div class="rec" style="color:var(--accent4)">Moderate — slightly more flexible, more params</div>
+    </div>
+    <div class="arch-card">
+      <h4 style="color:var(--accent4)">Option C — Triple Head (CE + Triplet + ArcFace)</h4>
+      <p>Adds an ArcFace head alongside CE and triplet. Maximum discriminativeness but sensitive to hyperparameters.</p>
+      <div class="rec" style="color:var(--muted)">Advanced — use after baseline is working</div>
+    </div>
+  </div>
+
+  <details>
+    <summary>Model code skeleton (PyTorch)</summary>
+    <div class="detail-body">
+<pre><span class="kw">import</span> torch, torch.nn <span class="kw">as</span> nn, torch.nn.functional <span class="kw">as</span> F
+<span class="kw">import</span> torchvision.models <span class="kw">as</span> models
+
+<span class="kw">class</span> <span class="cls">VMMRModel</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, num_classes=<span class="num">196</span>, embed_dim=<span class="num">256</span>, dropout=<span class="num">0.3</span>):
+        <span class="kw">super</span>().__init__()
+        <span class="cm"># Backbone: EfficientNet-B0, remove classifier</span>
+        backbone = models.efficientnet_b0(weights=<span class="str">"IMAGENET1K_V1"</span>)
+        self.features = backbone.features       <span class="cm"># conv blocks</span>
+        self.pool     = nn.AdaptiveAvgPool2d(<span class="num">1</span>)  <span class="cm"># GAP</span>
+        feat_dim      = backbone.classifier[<span class="num">1</span>].in_features  <span class="cm"># 1280</span>
+
+        <span class="cm"># BN-Neck</span>
+        self.bn_neck = nn.BatchNorm1d(feat_dim)
+        self.dropout = nn.Dropout(p=dropout)
+
+        <span class="cm"># Embedding head</span>
+        self.embed_head = nn.Sequential(
+            nn.Linear(feat_dim, embed_dim, bias=<span class="kw">False</span>),
+            nn.BatchNorm1d(embed_dim),
+        )
+
+        <span class="cm"># Classifier head</span>
+        self.classifier = nn.Linear(feat_dim, num_classes)
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):
+        feat = self.pool(self.features(x)).flatten(<span class="num">1</span>)  <span class="cm"># (B, 1280)</span>
+        neck = self.dropout(self.bn_neck(feat))          <span class="cm"># BN-Neck</span>
+        emb  = F.normalize(self.embed_head(neck), p=<span class="num">2</span>, dim=<span class="num">1</span>)  <span class="cm"># L2 norm</span>
+        logits = self.classifier(neck)                   <span class="cm"># (B, 196)</span>
+        <span class="kw">return</span> logits, emb</pre>
+    </div>
+  </details>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     §6  PKSAMPLER & BATCH MINING
+════════════════════════════════════════════════════════════════ -->
+<section id="pksampler">
+  <h2><span class="sec-num">6</span> PKSampler &amp; Batch Construction</h2>
+
+  <h3>Why Random Sampling Breaks Triplet Loss</h3>
+  <p>
+    Standard random sampling for a 196-class dataset with batch size 32 typically results in
+    each batch containing mostly single-instance classes. With only one image per class per
+    batch, there are <em>no valid same-class pairs</em> — the triplet loss has no positives
+    to work with and produces zero useful gradient.
+  </p>
+
+  <div class="callout warn">
+    <strong>Rule of thumb:</strong> For batch-hard triplet mining to work, every batch must
+    contain at least 2 images from the same class. In practice, K ≥ 4 is recommended for
+    stable gradients.
+  </div>
+
+  <h3>P×K Sampling</h3>
+  <p>
+    The PKSampler (also called "class-balanced batch sampler") constructs each mini-batch by:
+  </p>
+  <ol class="list">
+    <li>Randomly sample P classes from the dataset (e.g., P=32)</li>
+    <li>For each selected class, randomly sample K images (e.g., K=4)</li>
+    <li>Resulting batch size = P × K = 128</li>
+  </ol>
+  <div class="math">
+    <div class="label">Guaranteed triplets per batch</div>
+    Valid triplets ≥ P · K · (K−1) · (P−1) · K  =  32 · 4 · 3 · 31 · 4  =  47,616 triplets
+  </div>
+  <p>
+    Batch-hard mining selects only the hardest P·K = 128 of these — but the pool ensures
+    informative hard triplets are almost always available.
+  </p>
+
+  <details>
+    <summary>PKSampler implementation</summary>
+    <div class="detail-body">
+<pre><span class="kw">from</span> collections <span class="kw">import</span> defaultdict
+<span class="kw">import</span> random
+<span class="kw">from</span> torch.utils.data <span class="kw">import</span> Sampler
+
+<span class="kw">class</span> <span class="cls">PKSampler</span>(Sampler):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, labels, P=<span class="num">32</span>, K=<span class="num">4</span>):
+        self.P, self.K = P, K
+        self.index_by_class = defaultdict(list)
+        <span class="kw">for</span> i, lbl <span class="kw">in</span> enumerate(labels):
+            self.index_by_class[lbl].append(i)
+        self.classes = [c <span class="kw">for</span> c, idxs <span class="kw">in</span> self.index_by_class.items() <span class="kw">if</span> len(idxs) >= K]
+
+    <span class="kw">def</span> <span class="fn">__iter__</span>(self):
+        <span class="kw">while</span> <span class="kw">True</span>:
+            batch_classes = random.sample(self.classes, self.P)
+            batch = []
+            <span class="kw">for</span> c <span class="kw">in</span> batch_classes:
+                batch.extend(random.sample(self.index_by_class[c], self.K))
+            <span class="kw">yield from</span> batch
+
+    <span class="kw">def</span> <span class="fn">__len__</span>(self):
+        <span class="kw">return</span> len(self.classes) // self.P</pre>
+    </div>
+  </details>
+
+  <h3>Effect of P and K on Loss Landscape</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>P (classes/batch)</th><th>K (images/class)</th><th>Batch size</th><th>Effect</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>16</td><td>4</td><td>64</td><td>Fewer hard negatives; faster iteration; may miss hard cross-class cases</td></tr>
+        <tr><td><strong>32</strong></td><td><strong>4</strong></td><td><strong>128</strong></td><td><strong>Recommended balance; stable training with diverse negatives</strong></td></tr>
+        <tr><td>32</td><td>8</td><td>256</td><td>More intra-class positives; better hardest-positive signal; higher VRAM</td></tr>
+        <tr><td>64</td><td>4</td><td>256</td><td>Many negative classes; great for hard-negative diversity; VRAM intensive</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     §7  TRAINING RECIPE
+════════════════════════════════════════════════════════════════ -->
+<section id="training">
+  <h2><span class="sec-num">7</span> Training Recipe</h2>
+
+  <h3>Three-Stage Progressive Training</h3>
+  <p>
+    Progressive fine-tuning avoids destroying pretrained representations by initially keeping
+    the backbone frozen and only training the new heads. As the heads stabilize, deeper backbone
+    layers are progressively unfrozen.
+  </p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 820 140" width="800" xmlns="http://www.w3.org/2000/svg"
+         style="font-family: 'Segoe UI', system-ui, sans-serif;">
+      <!-- Stage bars -->
+      <rect x="10" y="30" width="230" height="70" rx="8" fill="#1e2330" stroke="#9f7aea" stroke-width="1.5"/>
+      <text x="125" y="58" text-anchor="middle" fill="#9f7aea" font-size="12" font-weight="700">Stage 1</text>
+      <text x="125" y="76" text-anchor="middle" fill="#e2e8f0" font-size="10">Backbone frozen</text>
+      <text x="125" y="92" text-anchor="middle" fill="#8892a4" font-size="9">Train heads only · lr=1e-3 · 5 ep</text>
+
+      <rect x="290" y="30" width="230" height="70" rx="8" fill="#1e2330" stroke="#4f8ef7" stroke-width="1.5"/>
+      <text x="405" y="58" text-anchor="middle" fill="#4f8ef7" font-size="12" font-weight="700">Stage 2</text>
+      <text x="405" y="76" text-anchor="middle" fill="#e2e8f0" font-size="10">Unfreeze last 2 blocks</text>
+      <text x="405" y="92" text-anchor="middle" fill="#8892a4" font-size="9">Joint CE+triplet · lr=3e-4 · 15 ep</text>
+
+      <rect x="570" y="30" width="230" height="70" rx="8" fill="#1e2330" stroke="#38b2ac" stroke-width="1.5"/>
+      <text x="685" y="58" text-anchor="middle" fill="#38b2ac" font-size="12" font-weight="700">Stage 3</text>
+      <text x="685" y="76" text-anchor="middle" fill="#e2e8f0" font-size="10">Full fine-tune</text>
+      <text x="685" y="92" text-anchor="middle" fill="#8892a4" font-size="9">lr=1e-4 · cosine decay · 10 ep</text>
+
+      <!-- arrows -->
+      <line x1="240" y1="65" x2="287" y2="65" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="520" y1="65" x2="567" y2="65" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#a2)"/>
+
+      <!-- Labels -->
+      <text x="125" y="125" text-anchor="middle" fill="#48bb78" font-size="9">β = 0.5 (triplet warmup)</text>
+      <text x="405" y="125" text-anchor="middle" fill="#48bb78" font-size="9">β ramps 0.5 → 1.0</text>
+      <text x="685" y="125" text-anchor="middle" fill="#48bb78" font-size="9">β = 1.0</text>
+    </svg>
+    <figcaption>Figure 7.1 — Three-stage progressive training schedule</figcaption>
+  </div>
+
+  <h3>Hyperparameters</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Parameter</th><th>Value</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Optimizer</td><td>AdamW</td><td>weight_decay=1e-4</td></tr>
+        <tr><td>Scheduler</td><td>CosineAnnealingLR</td><td>T_max = total epochs, η_min = 1e-6</td></tr>
+        <tr><td>Batch size</td><td>P=32 × K=4 = 128</td><td>PKSampler</td></tr>
+        <tr><td>Input size</td><td>224 × 224</td><td>Use 300×300 for EfficientNet-B3+</td></tr>
+        <tr><td>Label smoothing (ε)</td><td>0.1</td><td>nn.CrossEntropyLoss(label_smoothing=0.1)</td></tr>
+        <tr><td>Triplet margin (m)</td><td>0.3</td><td>Reasonable for L2 distance on unit sphere</td></tr>
+        <tr><td>Embed dim</td><td>256</td><td>Balance: accuracy vs. retrieval speed</td></tr>
+        <tr><td>α (CE weight)</td><td>1.0</td><td>Fixed throughout training</td></tr>
+        <tr><td>β (triplet weight)</td><td>0.5 → 1.0</td><td>Ramp up over first N epochs</td></tr>
+        <tr><td>Dropout</td><td>0.3</td><td>Applied after BN-Neck</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Data Augmentation Pipeline</h3>
+<pre><span class="fn">train_transform</span> = transforms.Compose([
+    transforms.RandomResizedCrop(<span class="num">224</span>, scale=(<span class="num">0.7</span>, <span class="num">1.0</span>)),   <span class="cm"># key for FGVR</span>
+    transforms.RandomHorizontalFlip(p=<span class="num">0.5</span>),
+    transforms.ColorJitter(brightness=<span class="num">0.3</span>, contrast=<span class="num">0.3</span>,
+                           saturation=<span class="num">0.2</span>, hue=<span class="num">0.05</span>),
+    transforms.RandomGrayscale(p=<span class="num">0.05</span>),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[<span class="num">0.485</span>, <span class="num">0.456</span>, <span class="num">0.406</span>],
+                          std=[<span class="num">0.229</span>, <span class="num">0.224</span>, <span class="num">0.225</span>]),
+])
+
+<span class="fn">val_transform</span> = transforms.Compose([
+    transforms.Resize(<span class="num">256</span>),
+    transforms.CenterCrop(<span class="num">224</span>),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[<span class="num">0.485</span>, <span class="num">0.456</span>, <span class="num">0.406</span>],
+                          std=[<span class="num">0.229</span>, <span class="num">0.224</span>, <span class="num">0.225</span>]),
+])</pre>
+
+  <div class="callout">
+    <strong>Bounding box crop:</strong> Stanford Cars provides bounding box annotations.
+    Cropping to the bounding box before augmentation can significantly improve accuracy
+    (+3–5% top-1) by removing distracting background. Apply a small padding (e.g., 10%)
+    around the box before cropping.
+  </div>
+
+  <h3>Loss Weight Scheduling</h3>
+  <p>
+    Starting with a low β for the triplet term avoids the instability common in early triplet
+    training (before embeddings are meaningful, hard triplets are essentially random). Ramping β
+    linearly over the first 10 epochs gives the CE loss time to structure the feature space,
+    after which triplet loss refines the geometry.
+  </p>
+<pre><span class="cm"># Linear β warmup over first `warmup_epochs` epochs</span>
+beta_schedule = <span class="kw">lambda</span> epoch: min(<span class="num">1.0</span>, <span class="num">0.5</span> + <span class="num">0.5</span> * epoch / warmup_epochs)</pre>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     §8  EVALUATION
+════════════════════════════════════════════════════════════════ -->
+<section id="evaluation">
+  <h2><span class="sec-num">8</span> Evaluation Metrics</h2>
+
+  <h3>Classification Metrics (from Classifier Head)</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>Top-1 Accuracy</h4>
+      <p>The predicted class (argmax of logits) matches the ground-truth label. Primary metric for VMMR benchmarking.</p>
+      <p><strong>Stanford Cars SOTA:</strong> ~94–95% (with EfficientNetV2 or ViT + strong augmentation)</p>
+    </div>
+    <div class="card">
+      <h4>Top-5 Accuracy</h4>
+      <p>Ground truth is within the top-5 predicted classes. Useful for understanding whether the model
+         is "close" even when wrong. Typically 98–99% for SOTA models.</p>
+    </div>
+  </div>
+
+  <h3>Retrieval Metrics (from Embedding Head)</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>Recall@K (R@1, R@5)</h4>
+      <p>For a query image, are any of the K nearest neighbors in the embedding space the same class?
+         R@1 ≈ top-1 accuracy for retrieval; R@5 measures the quality of the embedding neighborhood.</p>
+    </div>
+    <div class="card">
+      <h4>mAP@R (Mean Average Precision)</h4>
+      <p>For each query, compute AP over the ranked list of retrieved images of the same class.
+         Average over all queries. More sensitive to the full ranking than R@K.</p>
+    </div>
+  </div>
+
+  <h3>Embedding Space Visualization</h3>
+  <p>
+    t-SNE or UMAP applied to the 256-d test embeddings gives an intuitive view of the learned space.
+    Good embeddings show tight, well-separated clusters per class. Adjacent clusters should be
+    semantically related (e.g., same model, different year).
+  </p>
+<pre><span class="kw">from</span> sklearn.manifold <span class="kw">import</span> TSNE
+<span class="kw">import</span> matplotlib.pyplot <span class="kw">as</span> plt
+
+<span class="cm"># Collect embeddings on test set</span>
+all_embs, all_labels = collect_embeddings(model, test_loader)
+
+<span class="cm"># Reduce to 2D</span>
+tsne = TSNE(n_components=<span class="num">2</span>, perplexity=<span class="num">40</span>, random_state=<span class="num">42</span>)
+embs_2d = tsne.fit_transform(all_embs)
+
+plt.figure(figsize=(<span class="num">14</span>, <span class="num">10</span>))
+scatter = plt.scatter(embs_2d[:, <span class="num">0</span>], embs_2d[:, <span class="num">1</span>],
+                      c=all_labels, cmap=<span class="str">'tab20'</span>, s=<span class="num">3</span>, alpha=<span class="num">0.6</span>)
+plt.title(<span class="str">"t-SNE of VMMR embeddings (test set)"</span>)
+plt.colorbar(scatter)
+plt.tight_layout()
+plt.savefig(<span class="str">"tsne_embeddings.png"</span>, dpi=<span class="num">150</span>)</pre>
+
+  <h3>Expected Performance Benchmarks</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Backbone</th><th>Loss</th><th>Top-1 Acc</th><th>R@1</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>ResNet-50</td><td>CE only</td><td>~88%</td><td>~84%</td><td>Strong baseline</td></tr>
+        <tr><td>EfficientNet-B0</td><td>CE only</td><td>~91%</td><td>~87%</td><td>Good starting point</td></tr>
+        <tr><td><strong>EfficientNet-B0</strong></td><td><strong>CE + Triplet</strong></td><td><strong>~92%</strong></td><td><strong>~90%</strong></td><td><strong>This project's target</strong></td></tr>
+        <tr><td>EfficientNet-B3</td><td>CE + Triplet</td><td>~93%</td><td>~92%</td><td>Higher VRAM / compute</td></tr>
+        <tr><td>EfficientNetV2-S</td><td>CE + ArcFace</td><td>~94%</td><td>~93%</td><td>Near SOTA</td></tr>
+        <tr><td>DINOv2-ViT-S/14</td><td>CE + SupCon</td><td>~95%</td><td>~94%</td><td>SOTA direction</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     §9  REFERENCES
+════════════════════════════════════════════════════════════════ -->
+<section id="references">
+  <h2><span class="sec-num">9</span> References</h2>
+
+  <ol class="list" style="font-size:.9rem; line-height:1.85">
+    <li>
+      <strong>Krause, J., Stark, M., Deng, J., &amp; Fei-Fei, L.</strong> (2013).
+      <em>3D Object Representations for Fine-Grained Categorization.</em>
+      ICCV Workshop on 3D Representation and Recognition.
+      <span class="footnote">[Stanford Cars dataset paper]</span>
+    </li>
+    <li>
+      <strong>Tan, M., &amp; Le, Q. V.</strong> (2019).
+      <em>EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks.</em>
+      ICML 2019. arXiv:1905.11946
+    </li>
+    <li>
+      <strong>Tan, M., &amp; Le, Q. V.</strong> (2021).
+      <em>EfficientNetV2: Smaller Models and Faster Training.</em>
+      ICML 2021. arXiv:2104.00298
+    </li>
+    <li>
+      <strong>Schroff, F., Kalenichenko, D., &amp; Philbin, J.</strong> (2015).
+      <em>FaceNet: A Unified Embedding for Face Recognition and Clustering.</em>
+      CVPR 2015. arXiv:1503.03832
+      <span class="footnote">[Triplet loss / FaceNet]</span>
+    </li>
+    <li>
+      <strong>Hermans, A., Beyer, L., &amp; Leibe, B.</strong> (2017).
+      <em>In Defense of the Triplet Loss for Person Re-Identification.</em>
+      arXiv:1703.07737
+      <span class="footnote">[Batch-hard mining; PKSampler]</span>
+    </li>
+    <li>
+      <strong>Deng, J., Guo, J., Xue, N., &amp; Zafeiriou, S.</strong> (2019).
+      <em>ArcFace: Additive Angular Margin Loss for Deep Face Recognition.</em>
+      CVPR 2019. arXiv:1801.07698
+    </li>
+    <li>
+      <strong>Wang, H., Wang, Y., Zhou, Z., et al.</strong> (2018).
+      <em>CosFace: Large Margin Cosine Loss for Deep Face Recognition.</em>
+      CVPR 2018. arXiv:1801.09414
+    </li>
+    <li>
+      <strong>Movshovitz-Attias, Y., Toshev, A., Leung, T. K., et al.</strong> (2017).
+      <em>No Fuss Distance Metric Learning using Proxies.</em>
+      ICCV 2017. arXiv:1703.07464
+      <span class="footnote">[ProxyNCA]</span>
+    </li>
+    <li>
+      <strong>Khosla, P., Tian, Y., Wang, X., et al.</strong> (2020).
+      <em>Supervised Contrastive Learning.</em>
+      NeurIPS 2020. arXiv:2004.11362
+    </li>
+    <li>
+      <strong>Luo, H., Gu, Y., Liao, X., Lai, S., &amp; Jiang, W.</strong> (2019).
+      <em>Bag of Tricks and A Strong Baseline for Deep Person Re-identification.</em>
+      CVPR Workshops 2019. arXiv:1903.07071
+      <span class="footnote">[BN-Neck trick]</span>
+    </li>
+    <li>
+      <strong>Dosovitskiy, A., Beyer, L., Kolesnikov, A., et al.</strong> (2020).
+      <em>An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale.</em>
+      ICLR 2021. arXiv:2010.11929
+    </li>
+    <li>
+      <strong>Oquab, M., Darcet, T., Moutakanni, T., et al.</strong> (2023).
+      <em>DINOv2: Learning Robust Visual Features without Supervision.</em>
+      arXiv:2304.07193
+    </li>
+    <li>
+      <strong>Liu, Z., Mao, H., Wu, C. Y., et al.</strong> (2022).
+      <em>A ConvNet for the 2020s (ConvNeXt).</em>
+      CVPR 2022. arXiv:2201.03545
+    </li>
+    <li>
+      <strong>Hadsell, R., Chopra, S., &amp; LeCun, Y.</strong> (2006).
+      <em>Dimensionality Reduction by Learning an Invariant Mapping.</em>
+      CVPR 2006.
+      <span class="footnote">[Contrastive loss]</span>
+    </li>
+  </ol>
+</section>
+
+</main>
+
+<script>
+  // Highlight active section in sidebar on scroll
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('nav.sidebar a');
+  window.addEventListener('scroll', () => {
+    let current = '';
+    sections.forEach(sec => {
+      if (window.scrollY >= sec.offsetTop - 120) current = sec.id;
+    });
+    navLinks.forEach(a => {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  });
+</script>
+</body>
+</html>
